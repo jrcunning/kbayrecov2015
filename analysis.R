@@ -36,10 +36,11 @@ Mcap$C.Mc[which(Mcap$C.reps==1)] <- NA
 
 # Remove positive controls
 Mcap <- Mcap[grep("+", Mcap$Sample.Name, fixed=T, invert=T), ]
-# Remove NEC
+# Remove NECs
 Mcap <- Mcap[grep("NEC", Mcap$Sample.Name, fixed=T, invert=T), ]
 
 # Parse sample names and dates
+Mcap$plate <- unlist(lapply(strsplit(Mcap$File.Name, split="_"), "[", 4))
 sample.names <- rbind.fill(lapply(strsplit(as.character(Mcap$Sample.Name), split="_|-"), 
                                   function(X) data.frame(t(X))))
 colnames(sample.names) <- c("sample", "date")
@@ -49,7 +50,7 @@ Mcap$fdate <- factor(Mcap$date)
 Mcap$days <- as.numeric(Mcap$date) - min(as.numeric(Mcap$date))
 
 # Check for date errors
-levels(Mcap$fdate)  # no date errors!
+levels(Mcap$fdate)
 # Check for missing dates
 Mcap[is.na(Mcap$date), ]
 
@@ -76,13 +77,26 @@ Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"
 # Identify dominant symbiont clade
 Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
 
-# Idenfity samples in which no symbionts were detected
+# Assign visual ID and reef location metadata
+Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$sample)) %% 2 == 0, "not bleached", "bleached"))
+Mcap$reef <- cut(as.numeric(as.character(Mcap$sample)), 
+                 breaks=c(1,51,101,201,251), labels=c("HIMB", "25", "44", "42"))
+
+# Replace "sample" column name with "colony"
+colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
+
+# # Identify overall dominant symbiont clade across time points based on mean proportion clade D
+meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
+meanpropD$tdom <- factor(ifelse(meanpropD$x > 0.5, "D", "C"))
+rownames(meanpropD) <- meanpropD$colony
+Mcap$tdom <- meanpropD[as.character(Mcap$colony), "tdom"]
+head(Mcap)
+
+# Identify samples in which no symbionts were detected
 Mcap[which(Mcap$tot.SH==0), ]
+Mcap[which(Mcap$tot.SH==0), "tot.SH"] <- 2e-5
 
 # Filter duplicates -----------------------
-Mcap$daterun <- as.Date(substr(Mcap$File.Name, 1, 8), format="%Y%m%d")
-Mcap$plate <- unlist(lapply(strsplit(Mcap$File.Name, split="_"), "[", 4))
-
 filter.dups <- function(data) {
   keep <- data.frame()  # Create empty data frame to receive runs to keep
   # Identify duplicated samples (i.e., samples run multiple times)
@@ -111,59 +125,30 @@ filter.dups <- function(data) {
 }
 
 Mcap.f <- filter.dups(Mcap)  # filter duplicate sample runs
-Mcap.f[which(Mcap.f$tot.SH==0), ]
-hist(Mcap.f$Mc.CT.mean)
+
+# Filter out samples with high Mc.CT values
 thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
+range(Mcap.ff$tot.SH)
 
 
 
 
-
-# identify duplicates
-howmany <- table(interaction(Mcap.f$colony, Mcap.f$date))
-howmany
-
-dups <- howmany[which(howmany>1)]
-dups
-# WITH 12/17: IDENTIFY BEST BY LATER PLATE NUMBER
-
-
-
-
-
-
-
-
-# Assign visual ID and reef location metadata
-Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$sample)) %% 2 == 0, "not bleached", "bleached"))
-Mcap$reef <- cut(as.numeric(as.character(Mcap$sample)), 
-                 breaks=c(1,51,101,201,251), labels=c("HIMB", "25", "44", "42"))
-
-# Replace "sample" column name with "colony"
-colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
-
-# # Identify overall dominant symbiont clade across time points based on mean proportion clade D
-meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
-meanpropD$tdom <- factor(ifelse(meanpropD$x > 0.5, "D", "C"))
-rownames(meanpropD) <- meanpropD$colony
-Mcap$tdom <- meanpropD[as.character(Mcap$colony), "tdom"]
-head(Mcap)
 
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
-symtab <- table(Mcap$syms)
+symtab <- table(Mcap.f$syms)
 symtab
 samples <- c(symtab[1], symtab[2] + symtab[3], symtab[4])
 prop.table(samples)
 # Proportion clade D in samples with C+D mixtures
-propD <- Mcap$propD[which(Mcap$propD > 0 & Mcap$propD < 1)]
+propD <- Mcap.ff$propD[which(Mcap.ff$propD > 0 & Mcap.ff$propD < 1)]
 hist(propD)
 range(propD)
 # Percent of samples with >10% non-dominant symbiont (between 10% and 90% clade D)
 sum(prop.table(hist(propD, plot=F)$counts)[2:9])
 # Proportion of colonies with C only, D only, and C+D mixtures, aggregated over time
-colonies <- aggregate(Mcap$syms, by=list(colony=Mcap$colony), FUN=paste, collapse="")
+colonies <- aggregate(Mcap.f$syms, by=list(colony=Mcap.f$colony), FUN=paste, collapse="")
 colonies$C[grep("C", colonies$x)] <- "C"
 colonies$D[grep("D", colonies$x)] <- "D"
 colonies$present <- ifelse(is.na(colonies$C), ifelse(is.na(colonies$D), "none", "D only"), ifelse(is.na(colonies$D), "C only", "C+D"))
@@ -172,25 +157,19 @@ prop.table(table(colonies$present))
 clades <- data.frame(Colonies=matrix(prop.table(table(colonies$present))), Samples=prop.table(samples))
 clades
 # Proportion of colonies with overall C or D dominance (most abundant over time)
-propdom <- prop.table(table(Mcap[which(Mcap$fdate=="2015-08-11"), "tdom"]))
+propdom <- prop.table(table(Mcap.f[which(Mcap.f$fdate=="2015-08-11"), "tdom"]))
 propdom
-with(Mcap[which(Mcap$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
-
-# # filter data
-# Mcap <- Mcap[which(Mcap$fdate!="2015-12-17"), ]
-# boxplot.stats(Mcap$Mc.CT.mean)$stats
-# Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
-# Mcap <- Mcap[which(Mcap$Mc.CT.mean > 20), ]
+with(Mcap.f[which(Mcap.f$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
 
 # quick plot of S/H over time
-xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap[order(Mcap$days), ],
-       type="o", ylim=c(-10,0))
+xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
+       type="o", ylim=c(-11,1))
 
 Mcap[which(Mcap$days==71 & Mcap$tdom=="D"), ]
 
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on august 11?
-aug11 <- subset(Mcap, date=="2015-08-11")
+aug11 <- subset(Mcap.ff, date=="2015-08-11")
 aug11b <- subset(aug11, vis=="bleached")
 mean(log(aug11b$tot.SH))
 exp(mean(log(aug11b$tot.SH)))  # 0.0444
@@ -200,7 +179,7 @@ mean(log(aug11nb$tot.SH))
 exp(mean(log(aug11nb$tot.SH))) # 0.06499
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on september 14th?
-sept14 <- subset(Mcap, date=="2015-09-14")
+sept14 <- subset(Mcap.ff, date=="2015-09-14")
 sept14b <- subset(sept14, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(sept14b$tot.SH))
 exp(mean(log(sept14b$tot.SH))) # 0.01447
@@ -210,7 +189,7 @@ mean(log(sept14nb$tot.SH))
 exp(mean(log(sept14nb$tot.SH))) # 0.09232
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 1st?
-oct01 <- subset(Mcap, date=="2015-10-01")
+oct01 <- subset(Mcap.ff, date=="2015-10-01")
 oct01b <- subset(oct01, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(oct01b$tot.SH))
 exp(mean(log(oct01b$tot.SH))) # 0.010331
@@ -220,7 +199,7 @@ mean(log(oct01nb$tot.SH))
 exp(mean(log(oct01nb$tot.SH))) # 0.07662
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 21st?
-oct21 <- subset(Mcap, date=="2015-10-21")
+oct21 <- subset(Mcap.ff, date=="2015-10-21")
 oct21b <- subset(oct21, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(oct21b$tot.SH))
 exp(mean(log(oct21b$tot.SH))) #0.03430
@@ -230,7 +209,7 @@ mean(log(oct21nb$tot.SH))
 exp(mean(log(oct21nb$tot.SH))) #0.2295
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on november 4th?
-nov04 <- subset(Mcap, date=="2015-11-04")
+nov04 <- subset(Mcap.ff, date=="2015-11-04")
 nov04b <- subset(nov04, vis=="bleached" & tot.SH!="NA")
 mean(log(nov04b$tot.SH))
 exp(mean(log(nov04b$tot.SH))) #0.03812
@@ -240,7 +219,7 @@ mean(log(nov04nb$tot.SH))
 exp(mean(log(nov04nb$tot.SH))) #0.1835
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on december 4th?
-dec04 <- subset(Mcap, date=="2015-12-04")
+dec04 <- subset(Mcap.ff, date=="2015-12-04")
 dec04b <- subset(dec04, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(dec04b$tot.SH))
 exp(mean(log(dec04b$tot.SH))) #0.05548
@@ -250,7 +229,7 @@ mean(log(dec04nb$tot.SH))
 exp(mean(log(dec04nb$tot.SH))) #0.06052
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on january 20th?
-jan20 <- subset(Mcap, date=="2016-01-20")
+jan20 <- subset(Mcap.ff, date=="2016-01-20")
 jan20b <- subset(jan20, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(jan20b$tot.SH))
 exp(mean(log(jan20b$tot.SH))) #0.060698
@@ -260,7 +239,7 @@ mean(log(jan20nb$tot.SH))
 exp(mean(log(jan20nb$tot.SH))) #0.09441
 
 # what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on february 11th?
-feb11 <- subset(Mcap, date=="2016-02-11")
+feb11 <- subset(Mcap.ff, date=="2016-02-11")
 feb11b <- subset(feb11, (vis=="bleached") & (tot.SH!="NA"))
 mean(log(feb11b$tot.SH))
 exp(mean(log(feb11b$tot.SH))) #0.1199
@@ -274,7 +253,7 @@ exp(mean(log(feb11nb$tot.SH))) #0.1110
 # Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
 # Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
 
-happy <- aggregate(log(Mcap$tot.SH), by=list(Mcap$date, Mcap$vis), FUN=mean, na.rm=T)
+happy <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$vis), FUN=mean, na.rm=T)
 colnames(happy) <- c("date", "vis", "logSH")
 yay <- (subset(happy, vis=="bleached"))
 cool <- (subset(happy, vis=="not bleached"))
@@ -283,7 +262,7 @@ lines(cool$date, cool$logSH, type="b")
 dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
 axis(side=1, at=dates, labels=as.character(dates))
 
-rainbow <- aggregate(log(Mcap$tot.SH), by=list(Mcap$date, Mcap$reef, Mcap$vis), FUN=mean, na.rm=T)
+rainbow <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$reef, Mcap.ff$vis), FUN=mean, na.rm=T)
 colnames(rainbow) <- c("date", "reef", "vis", "logSH")
 thing1 <- subset(rainbow, (vis=="bleached" & reef=="HIMB"))
 thing2 <- subset(rainbow, (vis=="bleached" & reef=="25"))
@@ -294,7 +273,7 @@ thing6 <- subset(rainbow, (vis=="not bleached" & reef=="25"))
 thing7 <- subset(rainbow, (vis=="not bleached" & reef=="44"))
 thing8 <- subset(rainbow, (vis=="not bleached" & reef=="42"))
 
-plot(thing1$date, thing1$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n", col="darkorange", pch=5, ylim=c(-8,-1))
+plot(thing1$date, thing1$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n", col="darkorange", pch=5, ylim=c(-10,0))
 lines(thing2$date, thing2$logSH, type="b", col="magenta", pch=0)
 lines(thing3$date, thing3$logSH, type="b", col="turquoise", pch=1)
 lines(thing4$date, thing4$logSH, type="b", col="slateblue", pch=2)
