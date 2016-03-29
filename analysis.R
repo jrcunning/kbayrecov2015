@@ -3,7 +3,7 @@
 # =================================================================================================
 # • Load libraries --------------------------------------------------------------------------------
 library(lme4); library(MASS); library(reshape2); library(lattice); library(lmerTest); library(lsmeans)
-library(pbkrtest); library(scales); library(merTools); library(devtools); library(pBrackets); library(lattice)
+library(scales); library(merTools); library(devtools); library(pBrackets); library(lattice)
 ## SPIDA package available at http://r-forge.r-project.org/projects/spida/
 #system(paste("svn checkout svn://svn.r-forge.r-project.org/svnroot/spida/"))
 #devtools::install("spida/pkg")
@@ -36,6 +36,8 @@ Mcap$C.Mc[which(Mcap$C.reps==1)] <- NA
 
 # Remove positive controls
 Mcap <- Mcap[grep("+", Mcap$Sample.Name, fixed=T, invert=T), ]
+# Remove NEC
+Mcap <- Mcap[grep("NEC", Mcap$Sample.Name, fixed=T, invert=T), ]
 
 # Parse sample names and dates
 sample.names <- rbind.fill(lapply(strsplit(as.character(Mcap$Sample.Name), split="_|-"), 
@@ -47,16 +49,17 @@ Mcap$fdate <- factor(Mcap$date)
 Mcap$days <- as.numeric(Mcap$date) - min(as.numeric(Mcap$date))
 
 # Check for date errors
-levels(Mcap$fdate)
-Mcap[which(Mcap$date=="2011-12-17"), ]
-Mcap[which(Mcap$date=="2015-01-20"| Mcap$date=="2015-02-11"),]
+levels(Mcap$fdate)  # no date errors!
+# Check for missing dates
+Mcap[is.na(Mcap$date), ]
 
-# Check Mcap CT distribution
-hist(Mcap$Mc.CT.mean, breaks=seq(0,40,1))
-hist(Mcap[which(Mcap$date==as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
-hist(Mcap[which(Mcap$date!=as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
-
-goodMcap <- Mcap[which(Mcap$Mc.CT.mean < 30 & Mcap$date!=as.Date("2015-12-17")), ]
+# Make new column to indicate if sample failed (host assay did not amplify in both technical replicates)
+Mcap$fail <- ifelse(Mcap$Mc.reps < 2, TRUE, FALSE)
+table(Mcap$fail)
+fails <- Mcap[Mcap$fail==TRUE, ]
+#write.table(fails, file="fails.tsv", sep="\t", row.names=F)
+# Remove failed samples
+Mcap <- Mcap[which(Mcap$fail==FALSE), ]
 
 # Calculate total S/H ratio and D/C ratio and propD
 colnames(Mcap)[which(colnames(Mcap) %in% c("C.Mc", "D.Mc"))] <- c("C.SH", "D.SH")  # Rename cols
@@ -72,12 +75,65 @@ Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"
                     levels=c("C", "CD", "DC", "D"))
 # Identify dominant symbiont clade
 Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
-# Set zeros to NA to facilitate log transformation
-Mcap$C.SH[which(Mcap$C.SH==0)] <- NA
-Mcap$D.SH[which(Mcap$D.SH==0)] <- NA
-Mcap$tot.SH[which(Mcap$tot.SH==0)] <- NA
 
-#table(is.na(Mcap$tot.SH))  # 5 SAMPLES HAVE NO DATA
+# Idenfity samples in which no symbionts were detected
+Mcap[which(Mcap$tot.SH==0), ]
+
+# Filter duplicates -----------------------
+Mcap$daterun <- as.Date(substr(Mcap$File.Name, 1, 8), format="%Y%m%d")
+Mcap$plate <- unlist(lapply(strsplit(Mcap$File.Name, split="_"), "[", 4))
+
+filter.dups <- function(data) {
+  keep <- data.frame()  # Create empty data frame to receive runs to keep
+  # Identify duplicated samples (i.e., samples run multiple times)
+  dups <- unique(rbind(data[duplicated(interaction(data$colony, data$date)), ], 
+                       data[rev(duplicated(rev(interaction(data$colony, data$date)))), ]))
+  dups <- droplevels(dups)
+  # Create list of data frames for each duplicated sample
+  dups.list <- split(dups, f=interaction(dups$colony, dups$date))
+  dups.list <- dups.list[!unlist(lapply(dups.list, empty))]
+  # Loop through each duplicated sample and select which run to keep
+  for (sample in dups.list) {
+    # If any of the runs are 12-17 time point, delete the first run
+    if ("2015-12-17" %in% sample$date) {  
+      sample <- sample[which.max(sample$plate), ]
+    }
+    # If multiple runs of the original or re-extracted sample still exist, keep the run with
+    #   the lowest average standard deviation of technical replicates of each target
+    sample <- sample[which.min(rowMeans(sample[, c("Mc.CT.sd", "C.CT.sd", "D.CT.sd")], na.rm=T)), ]
+    # Collect runs to keep
+    keep <- merge(keep, sample, all=T)
+  }
+  # Filter out those runs not kept from data
+  nondups <- data[setdiff(rownames(data), rownames(dups)), ]
+  result <- merge(nondups, keep, all=T)
+  return(result)
+}
+
+Mcap.f <- filter.dups(Mcap)  # filter duplicate sample runs
+Mcap.f[which(Mcap.f$tot.SH==0), ]
+hist(Mcap.f$Mc.CT.mean)
+thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
+Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
+
+
+
+
+
+# identify duplicates
+howmany <- table(interaction(Mcap.f$colony, Mcap.f$date))
+howmany
+
+dups <- howmany[which(howmany>1)]
+dups
+# WITH 12/17: IDENTIFY BEST BY LATER PLATE NUMBER
+
+
+
+
+
+
+
 
 # Assign visual ID and reef location metadata
 Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$sample)) %% 2 == 0, "not bleached", "bleached"))
@@ -215,8 +271,8 @@ exp(mean(log(feb11nb$tot.SH))) #0.1110
 
 #---------- aggregate party time
 # filter out 12.17 because data are bad
-Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
-Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
+# Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
+# Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
 
 happy <- aggregate(log(Mcap$tot.SH), by=list(Mcap$date, Mcap$vis), FUN=mean, na.rm=T)
 colnames(happy) <- c("date", "vis", "logSH")
@@ -336,13 +392,7 @@ plotcolony("238") # D>C, no bleaching, no shuffling, all 3
 plotcolony("239") # C, bleaching, no shuffling, 1 to 2
 plotcolony("240") # D, no bleaching, no shuffling, all 3
 
-# identify duplicates
-howmany <- table(interaction(Mcap$colony, Mcap$date))
-howmany
 
-dups <- howmany[which(howmany==2)]
-dups
-# WITH 12/17: IDENTIFY BEST BY LATER PLATE NUMBER
 
 
 
@@ -432,3 +482,17 @@ text(xpd=T, y=y[1] - 0.75, pos=1, cex=0.6,
 text(xpd=T, y=quantile(par("usr")[3:4], 0) * -1.05 - 2.5, pos=1, cex=0.9,
      x=quantile(par("usr")[1:2], 0.5),
      labels=expression(italic(Symbiodinium)~clades))
+
+
+
+
+
+
+
+
+# # Check Mcap CT distribution
+# hist(Mcap$Mc.CT.mean, breaks=seq(0,40,1))
+# hist(Mcap[which(Mcap$date==as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
+# hist(Mcap[which(Mcap$date!=as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
+# 
+# goodMcap <- Mcap[which(Mcap$Mc.CT.mean < 30 & Mcap$date!=as.Date("2015-12-17")), ]
