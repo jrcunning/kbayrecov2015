@@ -54,6 +54,20 @@ levels(Mcap$fdate)
 # Check for missing dates
 Mcap[is.na(Mcap$date), ]
 
+# Replace "sample" column name with "colony"
+colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
+
+#Read in coral condition data and merge with Mcap
+condition <- read.csv("coralcondition.csv", header=TRUE)
+condition$date <- as.Date(condition$date, format="%m/%e/%y")
+
+condition$colony <- as.factor(condition$colony)
+condition$score <- as.integer(as.character(condition$score))
+Mcap <- merge(condition, Mcap)
+
+str(Mcap)
+str(condition)
+
 # Make new column to indicate if sample failed (host assay did not amplify in both technical replicates)
 Mcap$fail <- ifelse(Mcap$Mc.reps < 2, TRUE, FALSE)
 table(Mcap$fail)
@@ -78,12 +92,10 @@ Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"
 Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
 
 # Assign visual ID and reef location metadata
-Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$sample)) %% 2 == 0, "not bleached", "bleached"))
-Mcap$reef <- cut(as.numeric(as.character(Mcap$sample)), 
+Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$colony)) %% 2 == 0, "not bleached", "bleached"))
+Mcap$reef <- cut(as.numeric(as.character(Mcap$colony)), 
                  breaks=c(1,51,101,201,251), labels=c("HIMB", "25", "44", "42"))
 
-# Replace "sample" column name with "colony"
-colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
 
 # # Identify overall dominant symbiont clade across time points based on mean proportion clade D
 meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
@@ -286,7 +298,12 @@ axis(side=1, at=dates, labels=as.character(dates))
 legend("bottomright", legend=c("Reef HIMB", "Reef 25", "Reef 44", "Reef 42"), lty=c(1,1,1,1), col=c("darkorange","magenta","turquoise","slateblue"),inset=.05)
 legend("bottomright", legend=c("Bleached", "Not Bleached"), lty=c(1,2), col=c("black","black"), inset=c(.05,.25))
 
+#Plot visual score against symbiont to host ratio
+plot(Mcap.ff$score, log(Mcap.ff$tot.SH))
+plot(Mcap.ff$vis, Mcap.ff$score)
 
+which(Mcap.ff$vis=="not bleached" & Mcap.ff$score=="2")
+which(Mcap.ff$vis=="bleached" & Mcap.ff$score=="3" & Mcap.ff$date=="2015-11-04")
 # Plot abundance trajectory for a single colony
 plotcolony <- function(colony) {
   df <- Mcap[Mcap$colony==colony, ]
@@ -296,6 +313,8 @@ plotcolony <- function(colony) {
   axis(side=1, at=dates, labels=as.character(dates))
   abline(h=-1, lty=2)
 }
+
+plotcolony("119")
 
 plotcolony(colony="132") # C, no bleaching, no shuffling
 plotcolony("77") # C, bleaching, no shuffling
