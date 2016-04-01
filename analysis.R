@@ -143,7 +143,16 @@ thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
 range(Mcap.ff$tot.SH)
 
+# IMPORT YEAR1 DATA
+Mcap2014.f <- read.csv("Mcapf_year1.csv")
+Mcap2014.ff <- read.csv("Mcapff_year1.csv")
 
+Mcap2014.ff <- Mcap2014.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+Mcap2014.ff$colony <- as.factor(as.character(Mcap2014.ff$colony))
+Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
+Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+
+Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
 
 
 
@@ -175,6 +184,9 @@ with(Mcap.f[which(Mcap.f$fdate=="2015-10-01"), ], table(interaction(tdom, reef))
 
 # quick plot of S/H over time
 xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
+       type="o", ylim=c(-11,1))
+
+xyplot(log(tot.SH) ~ date | vis + reef, groups= ~ colony, data=Mcap.ff.all[order(Mcap.ff.all$date), ],
        type="o", ylim=c(-11,1))
 
 Mcap[which(Mcap$days==71 & Mcap$tdom=="D"), ]
