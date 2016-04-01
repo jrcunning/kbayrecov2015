@@ -74,8 +74,6 @@ Mcap$tot.SH <- Mcap$C.SH + Mcap$D.SH  # Add C and D to get total SH
 Mcap$logDC <- log(Mcap$D.SH / Mcap$C.SH)  # Calculate logDC ratio
 Mcap$propD <- Mcap$D.SH / (Mcap$D.SH + Mcap$C.SH)
 
-Mcap[Mcap$date=="2015-12-04",]
-
 # Identify symbiont clades present (C=C only, CD=C > D, DC=D > C, D=D only)
 Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"), 
                            ifelse(Mcap$D.SH > Mcap$C.SH, ifelse(Mcap$C.SH!=0, "DC", "D"), NA)),
@@ -94,7 +92,6 @@ meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=
 meanpropD$tdom <- factor(ifelse(meanpropD$x > 0.5, "D", "C"))
 rownames(meanpropD) <- meanpropD$colony
 Mcap$tdom <- meanpropD[as.character(Mcap$colony), "tdom"]
-head(Mcap)
 
 # Identify samples in which no symbionts were detected
 Mcap[which(Mcap$tot.SH==0), ]
@@ -139,8 +136,6 @@ thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
 range(Mcap.ff$tot.SH)
 
-
-
 # IMPORT YEAR1 DATA/ read in coral condition data and merge with Mcap.ff.all
 Mcap2014.f <- read.csv("Mcapf_year1.csv")
 Mcap2014.ff <- read.csv("Mcapff_year1.csv")
@@ -154,16 +149,12 @@ Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
 Mcap.ff.all$syms <- factor(Mcap.ff.all$syms, levels=c("C", "CD", "DC", "D"))
 levels(Mcap.ff.all$syms)
 
-nrow(Mcap.ff.all)
-
 condition <- read.csv("coralcondition.csv", header=TRUE)
 condition$date <- as.Date(condition$date, format="%m/%e/%y")
 condition$date
 condition$colony <- as.factor(condition$colony)
 condition$score <- as.integer(as.character(condition$score))
 Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T)
-
-nrow(Mcap.ff.all)
 
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
@@ -199,87 +190,6 @@ xyplot(log(tot.SH) ~ date | vis + reef, groups= ~ colony, data=Mcap.ff.all[order
        type="o", ylim=c(-11,1))
 
 Mcap[which(Mcap$days==71 & Mcap$tdom=="D"), ]
-
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on august 11?
-aug11 <- subset(Mcap.ff, date=="2015-08-11")
-aug11b <- subset(aug11, vis=="bleached")
-mean(log(aug11b$tot.SH))
-exp(mean(log(aug11b$tot.SH)))  # 0.0444
-
-aug11nb <- subset(aug11, vis=="not bleached")
-mean(log(aug11nb$tot.SH))
-exp(mean(log(aug11nb$tot.SH))) # 0.06499
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on september 14th?
-sept14 <- subset(Mcap.ff, date=="2015-09-14")
-sept14b <- subset(sept14, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(sept14b$tot.SH))
-exp(mean(log(sept14b$tot.SH))) # 0.01447
-
-sept14nb <- subset(sept14, vis=="not bleached")
-mean(log(sept14nb$tot.SH))
-exp(mean(log(sept14nb$tot.SH))) # 0.09232
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 1st?
-oct01 <- subset(Mcap.ff, date=="2015-10-01")
-oct01b <- subset(oct01, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(oct01b$tot.SH))
-exp(mean(log(oct01b$tot.SH))) # 0.010331
-
-oct01nb <- subset(oct01, (vis=="not bleached") & (tot.SH!="NA"))
-mean(log(oct01nb$tot.SH))
-exp(mean(log(oct01nb$tot.SH))) # 0.07662
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 21st?
-oct21 <- subset(Mcap.ff, date=="2015-10-21")
-oct21b <- subset(oct21, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(oct21b$tot.SH))
-exp(mean(log(oct21b$tot.SH))) #0.03430
-
-oct21nb <- subset(oct21, (vis=="not bleached") & (tot.SH!="NA"))
-mean(log(oct21nb$tot.SH))
-exp(mean(log(oct21nb$tot.SH))) #0.2295
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on november 4th?
-nov04 <- subset(Mcap.ff, date=="2015-11-04")
-nov04b <- subset(nov04, vis=="bleached" & tot.SH!="NA")
-mean(log(nov04b$tot.SH))
-exp(mean(log(nov04b$tot.SH))) #0.03812
-
-nov04nb <- subset(nov04, vis=="not bleached" & tot.SH!="NA")
-mean(log(nov04nb$tot.SH))
-exp(mean(log(nov04nb$tot.SH))) #0.1835
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on december 4th?
-dec04 <- subset(Mcap.ff, date=="2015-12-04")
-dec04b <- subset(dec04, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(dec04b$tot.SH))
-exp(mean(log(dec04b$tot.SH))) #0.05548
-
-dec04nb <- subset(dec04, (vis=="not bleached") & (tot.SH!="NA"))
-mean(log(dec04nb$tot.SH))
-exp(mean(log(dec04nb$tot.SH))) #0.06052
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on january 20th?
-jan20 <- subset(Mcap.ff, date=="2016-01-20")
-jan20b <- subset(jan20, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(jan20b$tot.SH))
-exp(mean(log(jan20b$tot.SH))) #0.060698
-
-jan20nb <- subset(jan20, (vis=="not bleached") & (tot.SH!="NA"))
-mean(log(jan20nb$tot.SH))
-exp(mean(log(jan20nb$tot.SH))) #0.09441
-
-# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on february 11th?
-feb11 <- subset(Mcap.ff, date=="2016-02-11")
-feb11b <- subset(feb11, (vis=="bleached") & (tot.SH!="NA"))
-mean(log(feb11b$tot.SH))
-exp(mean(log(feb11b$tot.SH))) #0.1199
-
-feb11nb <- subset(feb11, (vis=="not bleached") & (tot.SH!="NA"))
-mean(log(feb11nb$tot.SH))
-exp(mean(log(feb11nb$tot.SH))) #0.1110
 
 #---------- aggregate party time
 # filter out 12.17 because data are bad
@@ -353,9 +263,6 @@ plot(reef44$date, log(reef44$tot.SH),
 xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
        type="o", ylim=c(-11,1))
 
-# Which colonies go below a log SH of -4
-threshnegfour <- which(log(Mcap.ff$tot.SH)<=-4)
-which(threshnegfour)
 # Plot abundance trajectory for a single colony
 plotcolony <- function(colony) {
   df <- Mcap.ff[Mcap.ff$colony==colony, ]
@@ -453,14 +360,6 @@ plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to S
 plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
 
-plotcolonyXL("3")
-
-#Wierdo points
-Mcap[Mcap$colony=="223" & Mcap$date=="2015-10-01", ]
-Mcap[Mcap$colony=="123" & Mcap$date=="2016-02-11", ]
-Mcap.ff[Mcap.ff$colony=="211" & Mcap.ff$date=="2015-10-01",]
-
-log(.23)
 #SHUFFLING
 # Create matrix for image function
 Mcap.f <- Mcap
