@@ -3,7 +3,7 @@
 # =================================================================================================
 # • Load libraries --------------------------------------------------------------------------------
 library(lme4); library(MASS); library(reshape2); library(lattice); library(lmerTest); library(lsmeans)
-library(pbkrtest); library(scales); library(merTools); library(devtools); library(pBrackets)
+library(scales); library(merTools); library(devtools); library(pBrackets); library(lattice)
 ## SPIDA package available at http://r-forge.r-project.org/projects/spida/
 #system(paste("svn checkout svn://svn.r-forge.r-project.org/svnroot/spida/"))
 #devtools::install("spida/pkg")
@@ -36,8 +36,11 @@ Mcap$C.Mc[which(Mcap$C.reps==1)] <- NA
 
 # Remove positive controls
 Mcap <- Mcap[grep("+", Mcap$Sample.Name, fixed=T, invert=T), ]
+# Remove NECs
+Mcap <- Mcap[grep("NEC", Mcap$Sample.Name, fixed=T, invert=T), ]
 
 # Parse sample names and dates
+Mcap$plate <- unlist(lapply(strsplit(Mcap$File.Name, split="_"), "[", 4))
 sample.names <- rbind.fill(lapply(strsplit(as.character(Mcap$Sample.Name), split="_|-"), 
                                   function(X) data.frame(t(X))))
 colnames(sample.names) <- c("sample", "date")
@@ -48,25 +51,30 @@ Mcap$days <- as.numeric(Mcap$date) - min(as.numeric(Mcap$date))
 
 # Check for date errors
 levels(Mcap$fdate)
-Mcap[which(Mcap$date=="2011-12-17"), ]
-Mcap[which(Mcap$date=="2015-01-20"| Mcap$date=="2015-02-11"),]
+# Check for missing dates
+Mcap[is.na(Mcap$date), ]
 
-# Check Mcap CT distribution
-hist(Mcap$Mc.CT.mean, breaks=seq(0,40,1))
-hist(Mcap[which(Mcap$date==as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
-hist(Mcap[which(Mcap$date!=as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
+# Replace "sample" column name with "colony"
+colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
 
-bad <- Mcap[which(Mcap$Mc.CT.mean >= 29 & Mcap$date!=as.Date("2015-12-17")), ]
-bad
-nrow(bad)
+#Read in coral condition data and merge with Mcap
+condition <- read.csv("coralcondition.csv", header=TRUE)
+condition$date <- as.Date(condition$date, format="%m/%e/%y")
 
-bad <- with(bad, bad[order(Mc.CT.mean, decreasing=T), ])
+condition$colony <- as.factor(condition$colony)
+condition$score <- as.integer(as.character(condition$score))
+Mcap <- merge(condition, Mcap)
 
-table(bad$date)
-table(Mcap$date)
+str(Mcap)
+str(condition)
 
-nrow(Mcap)
-
+# Make new column to indicate if sample failed (host assay did not amplify in both technical replicates)
+Mcap$fail <- ifelse(Mcap$Mc.reps < 2, TRUE, FALSE)
+table(Mcap$fail)
+fails <- Mcap[Mcap$fail==TRUE, ]
+#write.table(fails, file="fails.tsv", sep="\t", row.names=F)
+# Remove failed samples
+Mcap <- Mcap[which(Mcap$fail==FALSE), ]
 
 # Calculate total S/H ratio and D/C ratio and propD
 colnames(Mcap)[which(colnames(Mcap) %in% c("C.Mc", "D.Mc"))] <- c("C.SH", "D.SH")  # Rename cols
@@ -82,20 +90,12 @@ Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"
                     levels=c("C", "CD", "DC", "D"))
 # Identify dominant symbiont clade
 Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
-# Set zeros to NA to facilitate log transformation
-Mcap$C.SH[which(Mcap$C.SH==0)] <- NA
-Mcap$D.SH[which(Mcap$D.SH==0)] <- NA
-Mcap$tot.SH[which(Mcap$tot.SH==0)] <- NA
-
-#table(is.na(Mcap$tot.SH))  # 5 SAMPLES HAVE NO DATA
 
 # Assign visual ID and reef location metadata
-Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$sample)) %% 2 == 0, "not bleached", "bleached"))
-Mcap$reef <- cut(as.numeric(as.character(Mcap$sample)), 
+Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$colony)) %% 2 == 0, "not bleached", "bleached"))
+Mcap$reef <- cut(as.numeric(as.character(Mcap$colony)), 
                  breaks=c(1,51,101,201,251), labels=c("HIMB", "25", "44", "42"))
 
-# Replace "sample" column name with "colony"
-colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
 
 # # Identify overall dominant symbiont clade across time points based on mean proportion clade D
 meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
@@ -104,20 +104,72 @@ rownames(meanpropD) <- meanpropD$colony
 Mcap$tdom <- meanpropD[as.character(Mcap$colony), "tdom"]
 head(Mcap)
 
+# Identify samples in which no symbionts were detected
+Mcap[which(Mcap$tot.SH==0), ]
+Mcap[which(Mcap$tot.SH==0), "tot.SH"] <- 2e-5
+
+# Filter duplicates -----------------------
+filter.dups <- function(data) {
+  keep <- data.frame()  # Create empty data frame to receive runs to keep
+  # Identify duplicated samples (i.e., samples run multiple times)
+  dups <- unique(rbind(data[duplicated(interaction(data$colony, data$date)), ], 
+                       data[rev(duplicated(rev(interaction(data$colony, data$date)))), ]))
+  dups <- droplevels(dups)
+  # Create list of data frames for each duplicated sample
+  dups.list <- split(dups, f=interaction(dups$colony, dups$date))
+  dups.list <- dups.list[!unlist(lapply(dups.list, empty))]
+  # Loop through each duplicated sample and select which run to keep
+  for (sample in dups.list) {
+    # If any of the runs are 12-17 time point, delete the first run
+    if ("2015-12-17" %in% sample$date) {  
+      sample <- sample[which.max(sample$plate), ]
+    }
+    # If multiple runs of the original or re-extracted sample still exist, keep the run with
+    #   the lowest average standard deviation of technical replicates of each target
+    sample <- sample[which.min(rowMeans(sample[, c("Mc.CT.sd", "C.CT.sd", "D.CT.sd")], na.rm=T)), ]
+    # Collect runs to keep
+    keep <- merge(keep, sample, all=T)
+  }
+  # Filter out those runs not kept from data
+  nondups <- data[setdiff(rownames(data), rownames(dups)), ]
+  result <- merge(nondups, keep, all=T)
+  return(result)
+}
+
+Mcap.f <- filter.dups(Mcap)  # filter duplicate sample runs
+
+# Filter out samples with high Mc.CT values
+thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
+Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
+range(Mcap.ff$tot.SH)
+
+# IMPORT YEAR1 DATA
+Mcap2014.f <- read.csv("Mcapf_year1.csv")
+Mcap2014.ff <- read.csv("Mcapff_year1.csv")
+
+Mcap2014.ff <- Mcap2014.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+Mcap2014.ff$colony <- as.factor(as.character(Mcap2014.ff$colony))
+Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
+Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+
+Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
+
+
+
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
-symtab <- table(Mcap$syms)
+symtab <- table(Mcap.f$syms)
 symtab
 samples <- c(symtab[1], symtab[2] + symtab[3], symtab[4])
 prop.table(samples)
 # Proportion clade D in samples with C+D mixtures
-propD <- Mcap$propD[which(Mcap$propD > 0 & Mcap$propD < 1)]
+propD <- Mcap.ff$propD[which(Mcap.ff$propD > 0 & Mcap.ff$propD < 1)]
 hist(propD)
 range(propD)
 # Percent of samples with >10% non-dominant symbiont (between 10% and 90% clade D)
 sum(prop.table(hist(propD, plot=F)$counts)[2:9])
 # Proportion of colonies with C only, D only, and C+D mixtures, aggregated over time
-colonies <- aggregate(Mcap$syms, by=list(colony=Mcap$colony), FUN=paste, collapse="")
+colonies <- aggregate(Mcap.f$syms, by=list(colony=Mcap.f$colony), FUN=paste, collapse="")
 colonies$C[grep("C", colonies$x)] <- "C"
 colonies$D[grep("D", colonies$x)] <- "D"
 colonies$present <- ifelse(is.na(colonies$C), ifelse(is.na(colonies$D), "none", "D only"), ifelse(is.na(colonies$D), "C only", "C+D"))
@@ -126,21 +178,275 @@ prop.table(table(colonies$present))
 clades <- data.frame(Colonies=matrix(prop.table(table(colonies$present))), Samples=prop.table(samples))
 clades
 # Proportion of colonies with overall C or D dominance (most abundant over time)
-propdom <- prop.table(table(Mcap[which(Mcap$fdate=="2015-08-11"), "tdom"]))
+propdom <- prop.table(table(Mcap.f[which(Mcap.f$fdate=="2015-08-11"), "tdom"]))
 propdom
-with(Mcap[which(Mcap$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
-
-# filter data
-Mcap <- Mcap[which(Mcap$fdate!="2015-12-17"), ]
-boxplot.stats(Mcap$Mc.CT.mean)$stats
-Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
-Mcap <- Mcap[which(Mcap$Mc.CT.mean > 20), ]
+with(Mcap.f[which(Mcap.f$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
 
 # quick plot of S/H over time
-xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap[order(Mcap$days), ],
-       type="o", ylim=c(-10,0))
+xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
+       type="o", ylim=c(-11,1))
+
+xyplot(log(tot.SH) ~ date | vis + reef, groups= ~ colony, data=Mcap.ff.all[order(Mcap.ff.all$date), ],
+       type="o", ylim=c(-11,1))
 
 Mcap[which(Mcap$days==71 & Mcap$tdom=="D"), ]
+
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on august 11?
+aug11 <- subset(Mcap.ff, date=="2015-08-11")
+aug11b <- subset(aug11, vis=="bleached")
+mean(log(aug11b$tot.SH))
+exp(mean(log(aug11b$tot.SH)))  # 0.0444
+
+aug11nb <- subset(aug11, vis=="not bleached")
+mean(log(aug11nb$tot.SH))
+exp(mean(log(aug11nb$tot.SH))) # 0.06499
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on september 14th?
+sept14 <- subset(Mcap.ff, date=="2015-09-14")
+sept14b <- subset(sept14, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(sept14b$tot.SH))
+exp(mean(log(sept14b$tot.SH))) # 0.01447
+
+sept14nb <- subset(sept14, vis=="not bleached")
+mean(log(sept14nb$tot.SH))
+exp(mean(log(sept14nb$tot.SH))) # 0.09232
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 1st?
+oct01 <- subset(Mcap.ff, date=="2015-10-01")
+oct01b <- subset(oct01, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(oct01b$tot.SH))
+exp(mean(log(oct01b$tot.SH))) # 0.010331
+
+oct01nb <- subset(oct01, (vis=="not bleached") & (tot.SH!="NA"))
+mean(log(oct01nb$tot.SH))
+exp(mean(log(oct01nb$tot.SH))) # 0.07662
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on october 21st?
+oct21 <- subset(Mcap.ff, date=="2015-10-21")
+oct21b <- subset(oct21, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(oct21b$tot.SH))
+exp(mean(log(oct21b$tot.SH))) #0.03430
+
+oct21nb <- subset(oct21, (vis=="not bleached") & (tot.SH!="NA"))
+mean(log(oct21nb$tot.SH))
+exp(mean(log(oct21nb$tot.SH))) #0.2295
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on november 4th?
+nov04 <- subset(Mcap.ff, date=="2015-11-04")
+nov04b <- subset(nov04, vis=="bleached" & tot.SH!="NA")
+mean(log(nov04b$tot.SH))
+exp(mean(log(nov04b$tot.SH))) #0.03812
+
+nov04nb <- subset(nov04, vis=="not bleached" & tot.SH!="NA")
+mean(log(nov04nb$tot.SH))
+exp(mean(log(nov04nb$tot.SH))) #0.1835
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on december 4th?
+dec04 <- subset(Mcap.ff, date=="2015-12-04")
+dec04b <- subset(dec04, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(dec04b$tot.SH))
+exp(mean(log(dec04b$tot.SH))) #0.05548
+
+dec04nb <- subset(dec04, (vis=="not bleached") & (tot.SH!="NA"))
+mean(log(dec04nb$tot.SH))
+exp(mean(log(dec04nb$tot.SH))) #0.06052
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on january 20th?
+jan20 <- subset(Mcap.ff, date=="2016-01-20")
+jan20b <- subset(jan20, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(jan20b$tot.SH))
+exp(mean(log(jan20b$tot.SH))) #0.060698
+
+jan20nb <- subset(jan20, (vis=="not bleached") & (tot.SH!="NA"))
+mean(log(jan20nb$tot.SH))
+exp(mean(log(jan20nb$tot.SH))) #0.09441
+
+# what is average symbiont to host cell ratio (log-transformed) in bleached and non-bleached colonies on february 11th?
+feb11 <- subset(Mcap.ff, date=="2016-02-11")
+feb11b <- subset(feb11, (vis=="bleached") & (tot.SH!="NA"))
+mean(log(feb11b$tot.SH))
+exp(mean(log(feb11b$tot.SH))) #0.1199
+
+feb11nb <- subset(feb11, (vis=="not bleached") & (tot.SH!="NA"))
+mean(log(feb11nb$tot.SH))
+exp(mean(log(feb11nb$tot.SH))) #0.1110
+
+#---------- aggregate party time
+# filter out 12.17 because data are bad
+# Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
+# Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
+
+happy <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$vis), FUN=mean, na.rm=T)
+colnames(happy) <- c("date", "vis", "logSH")
+yay <- (subset(happy, vis=="bleached"))
+cool <- (subset(happy, vis=="not bleached"))
+plot(yay$date, yay$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n")
+lines(cool$date, cool$logSH, type="b")
+dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+axis(side=1, at=dates, labels=as.character(dates))
+
+rainbow <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$reef, Mcap.ff$vis), FUN=mean, na.rm=T)
+colnames(rainbow) <- c("date", "reef", "vis", "logSH")
+thing1 <- subset(rainbow, (vis=="bleached" & reef=="HIMB"))
+thing2 <- subset(rainbow, (vis=="bleached" & reef=="25"))
+thing3 <- subset(rainbow, (vis=="bleached" & reef=="44"))
+thing4 <- subset(rainbow, (vis=="bleached" & reef=="42"))
+thing5 <- subset(rainbow, (vis=="not bleached" & reef=="HIMB"))
+thing6 <- subset(rainbow, (vis=="not bleached" & reef=="25"))
+thing7 <- subset(rainbow, (vis=="not bleached" & reef=="44"))
+thing8 <- subset(rainbow, (vis=="not bleached" & reef=="42"))
+
+plot(thing1$date, thing1$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n", col="darkorange", pch=5, ylim=c(-10,0))
+lines(thing2$date, thing2$logSH, type="b", col="magenta", pch=0)
+lines(thing3$date, thing3$logSH, type="b", col="turquoise", pch=1)
+lines(thing4$date, thing4$logSH, type="b", col="slateblue", pch=2)
+lines(thing5$date, thing5$logSH, type="b", col="darkorange", pch=5, lty=2)
+lines(thing6$date, thing6$logSH, type="b", col="magenta", pch=0, lty=2)
+lines(thing7$date, thing7$logSH, type="b", col="turquoise", pch=1, lty=2)
+lines(thing8$date, thing8$logSH, type="b", col="slateblue", pch=2, lty=2)
+dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+axis(side=1, at=dates, labels=as.character(dates))
+legend("bottomright", legend=c("Reef HIMB", "Reef 25", "Reef 44", "Reef 42"), lty=c(1,1,1,1), col=c("darkorange","magenta","turquoise","slateblue"),inset=.05)
+legend("bottomright", legend=c("Bleached", "Not Bleached"), lty=c(1,2), col=c("black","black"), inset=c(.05,.25))
+
+#Plot visual score against symbiont to host ratio
+plot(Mcap.ff$score, log(Mcap.ff$tot.SH))
+plot(Mcap.ff$vis, Mcap.ff$score)
+
+which(Mcap.ff$vis=="not bleached" & Mcap.ff$score=="2")
+which(Mcap.ff$vis=="bleached" & Mcap.ff$score=="3" & Mcap.ff$date=="2015-11-04")
+
+# Plot abundance trajectory for a single reef
+reefHIMB <- Mcap.ff[Mcap.ff$reef=="HIMB", ] 
+reef25 <- Mcap.ff[Mcap.ff$reef=="25", ]
+reef42 <- Mcap.ff[Mcap.ff$reef=="42", ]
+reef44 <- Mcap.ff[Mcap.ff$reef=="44", ]
+
+plot(reefHIMB$date, log(reefHIMB$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reefHIMB$vis], 
+     lines(reefHIMB$colony)
+     )
+
+plot(reef25$date, log(reef25$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reef25$vis], 
+     lines(reef25$colony)
+)
+plot(reef42$date, log(reef42$tot.SH), 
+      pch=21, type="b", bg=c("pink","purple")[reef42$vis], 
+      lines(reef42$colony)
+)
+plot(reef44$date, log(reef44$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reef44$vis], 
+     lines(reef44$colony)
+)
+
+xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
+       type="o", ylim=c(-11,1))
+
+# Which colonies go below a log SH of -4
+threshnegfour <- which(log(Mcap.ff$tot.SH)<=-4)
+which(threshnegfour)
+# Plot abundance trajectory for a single colony
+plotcolony <- function(colony) {
+  df <- Mcap.ff[Mcap.ff$colony==colony, ]
+  df <- df[order(df$date), ]
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-9,1), xaxt="n")
+  dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  axis(side=1, at=dates, labels=as.character(dates))
+  abline(h=-1, lty=2)
+}
+
+plotcolonyXL <- function(colony) {
+  df <- Mcap.ff[Mcap.ff$colony==colony, ]
+  df <- df[order(df$date), ]
+  par(mar = c(5,5,2,5))
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
+  dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  axis(side=1, at=dates, labels=as.character(dates))
+  abline(h=-1, lty=2)
+  par(new = T)
+  plot(df$date, df$score, type="b", pch=16, axes=F, xlab=NA, ylab=NA, ylim=c(1,3))
+  axis(side=4, at = c(1,2,3), labels= c(1,2,3))
+  mtext(side = 4, line = 3, 'Visual Score')
+}
+
+
+#REEF HIMB
+plotcolonyXL("3") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("4") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("8") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("11") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("19") #C, bleaching, no shuffling, NO: SH recovers, score does not (all 1)
+plotcolonyXL("20") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("25") #C, no bleaching, no shuffling, NO: SH seems to not bleach, score is ones
+plotcolonyXL("26") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("31") #C, severe bleaching, odd shuffling to D, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("32") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("40") #C>D, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("43") #C, severe bleaching, no shuffling, NO: SH recovers, score does not
+plotcolonyXL("44") #C, no bleaching, no shuffling, YES score corresponds to SH
+
+#REEF 25
+plotcolonyXL("51") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("52") #D>C, no bleaching, for 9/14 shuffled to C>D then returned to D>C, YES score corresponds to SH
+plotcolonyXL("53") #C, bleaching, no shuffling, YES score corresponds to SH (although 12.04.15 is wierd)
+plotcolonyXL("54") #C, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("57") #C, severe bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("58") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("65") #C, baby bleaching, no shuffling, NO: SH does not appear to change, vis shows bleaching
+plotcolonyXL("66") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("69") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("70") #D>C, no bleaching, baby shuffling to D on 2/11, YES score corresponds to SH *(baby)SHUFFLING
+plotcolonyXL("71") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("72") #C>D, no bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("77") #C, severe bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("78") #D>C, no bleaching, no shufflilng, YES score corresponds to SH
+plotcolonyXL("79") #C, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("80") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("83") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("84") #C, no bleaching, no shuffling, YES score corresponds to SH
+
+#REEF 44
+plotcolonyXL("109") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("110") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("112") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("119") #C>D, NO bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("120") #D>C, no bleaching, no shuffling, YES score correponds to SH
+plotcolonyXL("121") #C, NO bleaching, no shuffling, NO score shows bleaching, symbionts don't
+plotcolonyXL("122") #C>D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("123") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("124") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("125") #C>D, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("126") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("127") # only one data point, C
+plotcolonyXL("130") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("131") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("132") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("137") #C, no bleaching, no shuffling, NO score shows bleaching, SH does not
+plotcolonyXL("138") #D>C, no bleaching, shuffling to D, YES score corresponds to SH *SHUFFLING
+
+#REEF 42
+plotcolonyXL("201") #C, bleaching, shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("202") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("211") #C, NO bleaching, no shuffling, NO score shows bleaching, but SH doesn't 
+plotcolonyXL("212") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("215") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("216") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("223") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("224") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("227") #D, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("228") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("233")
+plotcolonyXL("234") #D, no bleaching, random shuffling but ended at D, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("237") #C, no bleaching, no shuffling, NO score shows bleaching, SH doesn't
+plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
+
+
+
+
 
 
 #SHUFFLING
@@ -154,6 +460,7 @@ clades <- unique(clades)
 clades <- dcast(clades, vis + colony + reef + tdom ~ date, drop=T)
 head(clades)
 clades[is.na(clades)] <- -1  # Recode missing values as -1
+
 #clades[which(clades$colony=="129"), 8:10] <- -2  # Recode mortality as -2
 clades.m0 <- clades[with(clades, order(clades[, 5], clades[, 6], clades[, 7], 
                                        clades[, 8], clades[, 9], clades[, 10])), ]
@@ -227,3 +534,17 @@ text(xpd=T, y=y[1] - 0.75, pos=1, cex=0.6,
 text(xpd=T, y=quantile(par("usr")[3:4], 0) * -1.05 - 2.5, pos=1, cex=0.9,
      x=quantile(par("usr")[1:2], 0.5),
      labels=expression(italic(Symbiodinium)~clades))
+
+
+
+
+
+
+
+
+# # Check Mcap CT distribution
+# hist(Mcap$Mc.CT.mean, breaks=seq(0,40,1))
+# hist(Mcap[which(Mcap$date==as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
+# hist(Mcap[which(Mcap$date!=as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
+# 
+# goodMcap <- Mcap[which(Mcap$Mc.CT.mean < 30 & Mcap$date!=as.Date("2015-12-17")), ]
