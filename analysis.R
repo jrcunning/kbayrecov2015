@@ -304,9 +304,40 @@ plot(Mcap.ff$vis, Mcap.ff$score)
 
 which(Mcap.ff$vis=="not bleached" & Mcap.ff$score=="2")
 which(Mcap.ff$vis=="bleached" & Mcap.ff$score=="3" & Mcap.ff$date=="2015-11-04")
+
+# Plot abundance trajectory for a single reef
+reefHIMB <- Mcap.ff[Mcap.ff$reef=="HIMB", ] 
+reef25 <- Mcap.ff[Mcap.ff$reef=="25", ]
+reef42 <- Mcap.ff[Mcap.ff$reef=="42", ]
+reef44 <- Mcap.ff[Mcap.ff$reef=="44", ]
+
+plot(reefHIMB$date, log(reefHIMB$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reefHIMB$vis], 
+     lines(reefHIMB$colony)
+     )
+
+plot(reef25$date, log(reef25$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reef25$vis], 
+     lines(reef25$colony)
+)
+plot(reef42$date, log(reef42$tot.SH), 
+      pch=21, type="b", bg=c("pink","purple")[reef42$vis], 
+      lines(reef42$colony)
+)
+plot(reef44$date, log(reef44$tot.SH), 
+     pch=21, type="b", bg=c("pink","purple")[reef44$vis], 
+     lines(reef44$colony)
+)
+
+xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
+       type="o", ylim=c(-11,1))
+
+# Which colonies go below a log SH of -4
+threshnegfour <- which(log(Mcap.ff$tot.SH)<=-4)
+which(threshnegfour)
 # Plot abundance trajectory for a single colony
 plotcolony <- function(colony) {
-  df <- Mcap[Mcap$colony==colony, ]
+  df <- Mcap.ff[Mcap.ff$colony==colony, ]
   df <- df[order(df$date), ]
   plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-9,1), xaxt="n")
   dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
@@ -314,81 +345,92 @@ plotcolony <- function(colony) {
   abline(h=-1, lty=2)
 }
 
-plotcolony("119")
+plotcolonyXL <- function(colony) {
+  df <- Mcap.ff[Mcap.ff$colony==colony, ]
+  df <- df[order(df$date), ]
+  par(mar = c(5,5,2,5))
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
+  dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  axis(side=1, at=dates, labels=as.character(dates))
+  abline(h=-1, lty=2)
+  par(new = T)
+  plot(df$date, df$score, type="b", pch=16, axes=F, xlab=NA, ylab=NA, ylim=c(1,3))
+  axis(side=4, at = c(1,2,3), labels= c(1,2,3))
+  mtext(side = 4, line = 3, 'Visual Score')
+}
 
-plotcolony(colony="132") # C, no bleaching, no shuffling
-plotcolony("77") # C, bleaching, no shuffling
-plotcolony("40") # C>D, no bleaching, shuffling to D>C
-plotcolony("8") # D, no bleaching, no shuffling
-plotcolony("71") # C, bleaching, shuffling to D>C
 
-plotcolony("3") # C, bleaching, no shuffling, 2 to majority 1 to 2
-plotcolony("4") # D, no bleaching, no shuffling, all 3
-plotcolony("8") # D>C, no bleaching, no shuffling, 2 to majority 3
-plotcolony("11") # C, bleaching, shuffling to D>C, 2 to majority 1 to 2
-plotcolony("19") # C, bleaching, no shuffling, 2 to majority 1
-plotcolony("20") # D, no bleaching, no shuffling, all 3
-plotcolony("25") # C, no bleaching, no shuffling, 2 to majority 1, *noted as bleached in pictures
-plotcolony("26") # D, no bleaching, no shuffling, all 3
-plotcolony("31") # C, bleaching, shuffling to D, 1 until 12/17 is 2, *not a lot of data
-plotcolony("32") # D, no bleaching, no shuffling, all 3
-plotcolony("40") # C>D, no bleaching, shuffling to D>C, 2 to majority 3 *no bleaching but shuffling
-plotcolony("43") # C, bleaching, no shuffling, 2 to majority 1
-plotcolony("44") # C, no bleaching, no shuffling, all 3
+#REEF HIMB
+plotcolonyXL("3") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("4") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("8") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("11") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("19") #C, bleaching, no shuffling, NO: SH recovers, score does not (all 1)
+plotcolonyXL("20") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("25") #C, no bleaching, no shuffling, NO: SH seems to not bleach, score is ones
+plotcolonyXL("26") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("31") #C, severe bleaching, odd shuffling to D, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("32") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("40") #C>D, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("43") #C, severe bleaching, no shuffling, NO: SH recovers, score does not
+plotcolonyXL("44") #C, no bleaching, no shuffling, YES score corresponds to SH
 
-plotcolony("51") # C, bleaching, no shuffling, 2 to majority 1
-plotcolony("52") # D>C, no bleaching, for 9/14 shuffled to C>D then returned to D>C, all 3
-plotcolony("53") # C, baby bleaching, 2 to majority 1 to 2
-plotcolony("54") # C, no bleaching, shuffling to D>C, all 3 *no bleaching but shuffling
-plotcolony("57") # C, bleaching, no shuffling, 3 to majority 1 to 2
-plotcolony("58") # D>C, no bleaching, no shuffling, half 2 to half 3 *unrealistic data point
-plotcolony("65") # C, baby bleaching, no shuffling, 2 to 1 to majority 2 to 3
-plotcolony("66") # C, no bleaching, no shuffling, all 3
-plotcolony("69") # C, bleaching, shuffling to D>C, 2 to 1 to 2
-plotcolony("70") # D>C, no bleaching, baby shuffling to D on 2/11, all 3
-plotcolony("71") # C, bleaching, shuffling to D>C, majority 1 to 2
-plotcolony("72") # C>D, no bleaching, random shuffling interspersed to C, all 3
-plotcolony("77") # C, bleaching, no shuffling, 2 to majority 1 to 2
-plotcolony("78") # D>C, no bleaching, no shufflilng, all 3
-plotcolony("79") # C, bleaching, interspersed shuffling to C>D ending in all C, 2 to 1 to 2
-plotcolony("80") # D, no bleaching, no shuffling, all 3
-plotcolony("83") # C, bleaching, no shuffling, 2 to majority 1 to 2
-plotcolony("84") # C, no bleaching, no shuffling, all 3
+#REEF 25
+plotcolonyXL("51") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("52") #D>C, no bleaching, for 9/14 shuffled to C>D then returned to D>C, YES score corresponds to SH
+plotcolonyXL("53") #C, bleaching, no shuffling, YES score corresponds to SH (although 12.04.15 is wierd)
+plotcolonyXL("54") #C, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("57") #C, severe bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("58") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("65") #C, baby bleaching, no shuffling, NO: SH does not appear to change, vis shows bleaching
+plotcolonyXL("66") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("69") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("70") #D>C, no bleaching, baby shuffling to D on 2/11, YES score corresponds to SH *(baby)SHUFFLING
+plotcolonyXL("71") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("72") #C>D, no bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("77") #C, severe bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("78") #D>C, no bleaching, no shufflilng, YES score corresponds to SH
+plotcolonyXL("79") #C, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("80") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("83") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("84") #C, no bleaching, no shuffling, YES score corresponds to SH
 
-plotcolony("109") # C, bleaching, no shuffling, 2 to 1 to 2
-plotcolony("110") # C, no bleaching (tiny dip maybe?), no shuffling, all 3
-plotcolony("112") # D>C, no bleaching, no shuffling, all 3
-plotcolony("119") # C>D, bleaching, possible shuffling to D>C, majority 2 to 3, *odd data
-plotcolony("120") # D>C, no bleaching, no shuffling, all 3
-plotcolony("121") # C, baby bleaching, no shuffling, majority 1 to 2 to 3
-plotcolony("122") # C>D, no bleaching, no shuffling, 3 to one 2 to 3
-plotcolony("123") # C, bleaching, no shuffling, majority 1 to 3 *odd data point
-plotcolony("124") # C, no bleaching, no shuffling, all 3
-plotcolony("125") # C>D, bleaching, shuffling to D>C, 2 to 1 to 2
-plotcolony("126") # D, no bleaching but very up and down, no shuffling, all 3
-plotcolony("127") # only one data point, C
-plotcolony("130") # D, no bleaching, no shuffling, 2 to 3 *unrealistic data point
-plotcolony("131") # C, bleaching, no shuffling, 2 to 1 to 2
-plotcolony("132") # C, no bleaching, no shuffling, all 3
-plotcolony("137") # C, bleaching, no shuffling, majority 1 to 2
-plotcolony("138") # D>C, no bleaching, shuffling to D, all 3 *shuffling without bleaching
+#REEF 44
+plotcolonyXL("109") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("110") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("112") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("119") #C>D, NO bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("120") #D>C, no bleaching, no shuffling, YES score correponds to SH
+plotcolonyXL("121") #C, NO bleaching, no shuffling, NO score shows bleaching, symbionts don't
+plotcolonyXL("122") #C>D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("123") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("124") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("125") #C>D, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("126") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("127") # only one data point, C
+plotcolonyXL("130") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("131") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("132") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("137") #C, no bleaching, no shuffling, NO score shows bleaching, SH does not
+plotcolonyXL("138") #D>C, no bleaching, shuffling to D, YES score corresponds to SH *SHUFFLING
 
-plotcolony("201") # C, bleaching, shuffling back and forth to D>C, 1 to 2 *odd data
-plotcolony("202") # C, no bleaching, no shuffling, all 3
-plotcolony("211") # C, bleaching, no shuffling, 1 to 2
-plotcolony("212") # D>C, no bleaching, maybe shuffling on 1/20 to C>D, all 3
-plotcolony("215") # NO DATA
-plotcolony("216") # D, no bleaching, no shuffling, all 3
-plotcolony("223") # C, bleaching, shuffling to D>C, 1 to 2
-plotcolony("224") # C, no bleaching, no shuffling, all 3
-plotcolony("227") # D, severe bleaching, various inconclusive shuffling, 1 to 2
-plotcolony("228") # C, no bleaching, no shuffling, all 3
-plotcolony("233")
-plotcolony("234") # D, no bleaching, inconclusive shuffling but ended at D, all 3
-plotcolony("237") # C, no shuffling, 1 to 2, *odd data
-plotcolony("238") # D>C, no bleaching, no shuffling, all 3
-plotcolony("239") # C, bleaching, no shuffling, 1 to 2
-plotcolony("240") # D, no bleaching, no shuffling, all 3
+#REEF 42
+plotcolonyXL("201") #C, bleaching, shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("202") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("211") #C, NO bleaching, no shuffling, NO score shows bleaching, but SH doesn't 
+plotcolonyXL("212") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("215") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("216") #D, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("223") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("224") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("227") #D, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("228") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("233")
+plotcolonyXL("234") #D, no bleaching, random shuffling but ended at D, YES score corresponds to SH *SHUFFLING
+plotcolonyXL("237") #C, no bleaching, no shuffling, NO score shows bleaching, SH doesn't
+plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
 
 
 
