@@ -51,22 +51,12 @@ Mcap$days <- as.numeric(Mcap$date) - min(as.numeric(Mcap$date))
 
 # Check for date errors
 levels(Mcap$fdate)
+Mcap[Mcap$date=="2015-12-04",]
 # Check for missing dates
 Mcap[is.na(Mcap$date), ]
 
 # Replace "sample" column name with "colony"
 colnames(Mcap)[which(colnames(Mcap)=="sample")] <- "colony"
-
-#Read in coral condition data and merge with Mcap
-condition <- read.csv("coralcondition.csv", header=TRUE)
-condition$date <- as.Date(condition$date, format="%m/%e/%y")
-
-condition$colony <- as.factor(condition$colony)
-condition$score <- as.integer(as.character(condition$score))
-Mcap <- merge(condition, Mcap)
-
-str(Mcap)
-str(condition)
 
 # Make new column to indicate if sample failed (host assay did not amplify in both technical replicates)
 Mcap$fail <- ifelse(Mcap$Mc.reps < 2, TRUE, FALSE)
@@ -83,6 +73,8 @@ Mcap$D.SH[is.na(Mcap$D.SH)] <- 0
 Mcap$tot.SH <- Mcap$C.SH + Mcap$D.SH  # Add C and D to get total SH
 Mcap$logDC <- log(Mcap$D.SH / Mcap$C.SH)  # Calculate logDC ratio
 Mcap$propD <- Mcap$D.SH / (Mcap$D.SH + Mcap$C.SH)
+
+Mcap[Mcap$date=="2015-12-04",]
 
 # Identify symbiont clades present (C=C only, CD=C > D, DC=D > C, D=D only)
 Mcap$syms <- factor(ifelse(Mcap$C.SH > Mcap$D.SH, ifelse(Mcap$D.SH!=0, "CD", "C"), 
@@ -107,6 +99,10 @@ head(Mcap)
 # Identify samples in which no symbionts were detected
 Mcap[which(Mcap$tot.SH==0), ]
 Mcap[which(Mcap$tot.SH==0), "tot.SH"] <- 2e-5
+
+# Manually remove inappropriate data points
+Mcap <- Mcap[!(Mcap$colony=="77" & Mcap$date=="2015-12-17"),] #Photo reveals variation within colony, this sample probably came from a bleached tip while other parts of the colony appeared to be recovering, not representative of full colony recovery
+Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date=="2015-09-14"),] #Photo reveals different bleached colony very close to actual colony that is assumed to be mistaken for colony 130 on this timepoint. Bleached colony died by next timepoint.
 
 # Filter duplicates -----------------------
 filter.dups <- function(data) {
@@ -143,7 +139,9 @@ thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
 range(Mcap.ff$tot.SH)
 
-# IMPORT YEAR1 DATA
+
+
+# IMPORT YEAR1 DATA/ read in coral condition data and merge with Mcap.ff.all
 Mcap2014.f <- read.csv("Mcapf_year1.csv")
 Mcap2014.ff <- read.csv("Mcapff_year1.csv")
 
@@ -153,8 +151,19 @@ Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
 Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
 
 Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
+Mcap.ff.all$syms <- factor(Mcap.ff.all$syms, levels=c("C", "CD", "DC", "D"))
+levels(Mcap.ff.all$syms)
 
+nrow(Mcap.ff.all)
 
+condition <- read.csv("coralcondition.csv", header=TRUE)
+condition$date <- as.Date(condition$date, format="%m/%e/%y")
+condition$date
+condition$colony <- as.factor(condition$colony)
+condition$score <- as.integer(as.character(condition$score))
+Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T)
+
+nrow(Mcap.ff.all)
 
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
@@ -358,11 +367,11 @@ plotcolony <- function(colony) {
 }
 
 plotcolonyXL <- function(colony) {
-  df <- Mcap.ff[Mcap.ff$colony==colony, ]
+  df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
   df <- df[order(df$date), ]
   par(mar = c(5,5,2,5))
   plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
-  dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-13", "2015-02-10", "2015-03-10", "2015-05-06", "2015-06-05", "2015-07-14", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
   axis(side=1, at=dates, labels=as.character(dates))
   abline(h=-1, lty=2)
   par(new = T)
@@ -444,11 +453,14 @@ plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to S
 plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
 
+plotcolonyXL("3")
 
+#Wierdo points
+Mcap[Mcap$colony=="223" & Mcap$date=="2015-10-01", ]
+Mcap[Mcap$colony=="123" & Mcap$date=="2016-02-11", ]
+Mcap.ff[Mcap.ff$colony=="211" & Mcap.ff$date=="2015-10-01",]
 
-
-
-
+log(.23)
 #SHUFFLING
 # Create matrix for image function
 Mcap.f <- Mcap
