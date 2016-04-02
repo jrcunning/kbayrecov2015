@@ -156,6 +156,11 @@ condition$colony <- as.factor(condition$colony)
 condition$score <- as.integer(as.character(condition$score))
 Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T)
 
+depth <- read.csv("depth.csv", header=TRUE)
+depth$colony <- as.factor(depth$colony)
+Mcap.ff.all <- merge(depth, Mcap.ff.all, all.y=T)
+
+
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
 symtab <- table(Mcap.f$syms)
@@ -287,6 +292,34 @@ plotcolonyXL <- function(colony) {
   mtext(side = 4, line = 3, 'Visual Score')
 }
 
+plotcolonyXXL <- function(colony) {
+  df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
+  df <- df[order(df$date), ]
+  par(mar = c(5,5,2,5))
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
+  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-13", "2015-02-10", "2015-03-10", "2015-05-06", "2015-06-05", "2015-07-14", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  axis(side=1, at=dates, labels=as.character(dates))
+  abline(h=-1, lty=2)
+  par(new = T)
+  plot(df$date, df$depth, type="l", pch=16, axes=F, xlab=NA, ylab=NA, ylim=c(1,10))
+  axis(side=4, at = c(1,2,3,4,5,6,7,8,9,10), labels= c(1,2,3,4,5,6,7,8,9,10))
+  mtext(side = 4, line = 3, 'Depth')
+}
+
+plotcolonyXXL("11") #2
+plotcolonyXXL("31") #2
+plotcolonyXXL("40") #5
+plotcolonyXXL("54") #8
+plotcolonyXXL("71") #5
+plotcolonyXXL("78") #6
+plotcolonyXXL("80") #7
+plotcolonyXXL("119") #5
+plotcolonyXXL("125") #7
+plotcolonyXXL("130") #6
+plotcolonyXXL("215") #2
+plotcolonyXXL("223") #2
+plotcolonyXXL("227") #4
+
 
 #REEF HIMB
 plotcolonyXL("3") #C, bleaching, no shuffling, YES score corresponds to SH
@@ -359,6 +392,7 @@ plotcolonyXL("237") #C, no bleaching, no shuffling, NO score shows bleaching, SH
 plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
+
 
 #SHUFFLING
 # Create matrix for image function
