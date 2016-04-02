@@ -100,6 +100,8 @@ Mcap[which(Mcap$tot.SH==0), "tot.SH"] <- 2e-5
 # Manually remove inappropriate data points
 Mcap <- Mcap[!(Mcap$colony=="77" & Mcap$date=="2015-12-17"),] #Photo reveals variation within colony, this sample probably came from a bleached tip while other parts of the colony appeared to be recovering, not representative of full colony recovery
 Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date=="2015-09-14"),] #Photo reveals different bleached colony very close to actual colony that is assumed to be mistaken for colony 130 on this timepoint. Bleached colony died by next timepoint.
+Mcap <- Mcap[!(Mcap$colony=="58" & Mcap$date=="2015-11-04"),]
+Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date=="2015-10-01"),]
 
 # Filter duplicates -----------------------
 filter.dups <- function(data) {
@@ -132,8 +134,10 @@ filter.dups <- function(data) {
 Mcap.f <- filter.dups(Mcap)  # filter duplicate sample runs
 
 # Filter out samples with high Mc.CT values
+boxplot(Mcap.f$Mc.CT.mean)
 thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
+Mcap.ff <- Mcap.ff[which(Mcap.ff$tot.SH < 1), ]
 range(Mcap.ff$tot.SH)
 
 # IMPORT YEAR1 DATA/ read in coral condition data and merge with Mcap.ff.all
@@ -156,6 +160,56 @@ condition$colony <- as.factor(condition$colony)
 condition$score <- as.integer(as.character(condition$score))
 Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T)
 
+# Clustering colonies
+Mcap2015.ff <- Mcap.ff.all[Mcap.ff.all$date > "2015-05-07", c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef","score")]
+Mcap2015.ff$logtot <- log(Mcap2015.ff$tot.SH)
+Mcap2015.ff$asinsqrtpropD <- asin(sqrt(Mcap2015.ff$propD))
+Mcap2015.ff <- Mcap2015.ff[!Mcap2015.ff$colony %in% c(127,233,27),]
+
+Mcapm <- melt(Mcap2015.ff, id.vars=c("colony","vis","reef","date"), measure.vars=c("logtot", "asinsqrtpropD", "score"))
+Mcapd <- dcast(Mcapm, colony ~ date + variable)
+rownames(Mcapd) <- Mcapd$colony
+Mcapd <- Mcapd[,-1]
+head(Mcapd)
+
+library(fpc)
+pamk.best <- pamk(Mcapd, scaling=F, criterion="asw")
+pamk.best$nc
+
+Mcapdclust <- pam(Mcapd, k=3, metric="manhattan")
+
+#plot(Mcapdclust)
+Mcap2015.ff$cluster <- as.factor(Mcapdclust$clustering[as.character(Mcap2015.ff$colony)])
+par(mfrow=c(1,3), mar=c(2,2,2,1))
+for (i in 1:nlevels(Mcap2015.ff$cluster)) {
+  df <- Mcap2015.ff[Mcap2015.ff$cluster==i, ]
+  df <- df[order(df$date), ]
+  plot(NA, xlim=range(df$date), ylim=c(-11,0))
+  for (c in levels(df$colony)) {
+    lines(logtot ~ date, data=df[df$colony==c, ], type="o",
+          pch=21, bg=c("blue","lightblue","pink","red")[syms])
+  }
+}
+
+
+shufflers <- c(11,31,40,54,71,78,80,119,125,130,215,223,227)
+nonshufflers <- as.numeric(as.character(levels(Mcap2015.ff$colony)[!levels(Mcap2015.ff$colony) %in% shufflers]))
+par(mfrow=c(1,2))
+for (g in c("shufflers", "nonshufflers")) {
+  g <- get(g)
+  df <- Mcap2015.ff[as.character(Mcap2015.ff$colony) %in% as.character(g), ]
+  df <- df[order(df$date), ]
+  plot(NA, xlim=range(df$date), ylim=c(-11,0))
+  for (c in levels(df$colony)) {
+    lines(logtot ~ date, data=df[df$colony==c, ], type="o",
+          pch=21, bg=c("blue","lightblue","pink","red")[syms])
+  }
+}
+
+
+
+
+
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
 symtab <- table(Mcap.f$syms)
@@ -163,7 +217,7 @@ symtab
 samples <- c(symtab[1], symtab[2] + symtab[3], symtab[4])
 prop.table(samples)
 # Proportion clade D in samples with C+D mixtures
-propD <- Mcap.ff$propD[which(Mcap.ff$propD > 0 & Mcap.ff$propD < 1)]
+propD <- Mcap.f$propD[which(Mcap.f$propD > 0 & Mcap.f$propD < 1)]
 hist(propD)
 range(propD)
 # Percent of samples with >10% non-dominant symbiont (between 10% and 90% clade D)
@@ -182,16 +236,14 @@ propdom <- prop.table(table(Mcap.f[which(Mcap.f$fdate=="2015-08-11"), "tdom"]))
 propdom
 with(Mcap.f[which(Mcap.f$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
 
-# quick plot of S/H over time
+# quick plot of S/H over time for all colonies --------
 xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
        type="o", ylim=c(-11,1))
 
 xyplot(log(tot.SH) ~ date | vis + reef, groups= ~ colony, data=Mcap.ff.all[order(Mcap.ff.all$date), ],
        type="o", ylim=c(-11,1))
 
-Mcap[which(Mcap$days==71 & Mcap$tdom=="D"), ]
-
-#---------- aggregate party time
+# Analysis of mean SH over time at each reef ----------
 # filter out 12.17 because data are bad
 # Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
 # Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
@@ -229,14 +281,8 @@ axis(side=1, at=dates, labels=as.character(dates))
 legend("bottomright", legend=c("Reef HIMB", "Reef 25", "Reef 44", "Reef 42"), lty=c(1,1,1,1), col=c("darkorange","magenta","turquoise","slateblue"),inset=.05)
 legend("bottomright", legend=c("Bleached", "Not Bleached"), lty=c(1,2), col=c("black","black"), inset=c(.05,.25))
 
-#Plot visual score against symbiont to host ratio
-plot(Mcap.ff$score, log(Mcap.ff$tot.SH))
-plot(Mcap.ff$vis, Mcap.ff$score)
 
-which(Mcap.ff$vis=="not bleached" & Mcap.ff$score=="2")
-which(Mcap.ff$vis=="bleached" & Mcap.ff$score=="3" & Mcap.ff$date=="2015-11-04")
-
-# Plot abundance trajectory for a single reef
+# Plot abundance trajectory for a single reef ------
 reefHIMB <- Mcap.ff[Mcap.ff$reef=="HIMB", ] 
 reef25 <- Mcap.ff[Mcap.ff$reef=="25", ]
 reef42 <- Mcap.ff[Mcap.ff$reef=="42", ]
@@ -263,7 +309,7 @@ plot(reef44$date, log(reef44$tot.SH),
 xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
        type="o", ylim=c(-11,1))
 
-# Plot abundance trajectory for a single colony
+# Plot abundance trajectory for a single colony -----
 plotcolony <- function(colony) {
   df <- Mcap.ff[Mcap.ff$colony==colony, ]
   df <- df[order(df$date), ]
@@ -278,7 +324,7 @@ plotcolonyXL <- function(colony) {
   df <- df[order(df$date), ]
   par(mar = c(5,5,2,5))
   plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
-  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-13", "2015-02-10", "2015-03-10", "2015-05-06", "2015-06-05", "2015-07-14", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
+  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-14", "2015-05-06", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
   axis(side=1, at=dates, labels=as.character(dates))
   abline(h=-1, lty=2)
   par(new = T)
@@ -360,9 +406,9 @@ plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to S
 plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
 
-#SHUFFLING
+#SHUFFLING ---------
+
 # Create matrix for image function
-Mcap.f <- Mcap
 clades <- melt(Mcap.f, id.vars=c("colony", "date", "vis", "reef", "tdom"), measure.vars="syms",
                factorsAsStrings=FALSE)
 head(clades)
@@ -373,7 +419,7 @@ head(clades)
 clades[is.na(clades)] <- -1  # Recode missing values as -1
 
 #clades[which(clades$colony=="129"), 8:10] <- -2  # Recode mortality as -2
-clades.m0 <- clades[with(clades, order(clades[, 5], clades[, 6], clades[, 7], 
+clades.m0 <- clades[with(clades, order(clades[, 12], clades[, 5], clades[, 7], 
                                        clades[, 8], clades[, 9], clades[, 10])), ]
 clades.m <- as.matrix(clades.m0[,5:12])
 rownames(clades.m) <- as.character(clades.m0$colony)
@@ -450,12 +496,94 @@ text(xpd=T, y=quantile(par("usr")[3:4], 0) * -1.05 - 2.5, pos=1, cex=0.9,
 
 
 
+# MODEL TRAJECTORIES ------
+# Model trajectories of symbiont populations over time using mixed model
+#   Build piecewise polynomial model with knot at 82 days (January time point)
+#   From October to January, fit a quadratic polynomial (1st element of degree=2)
+#   From January to May, fit a linear model (2nd element of degree=1)
+#   Function is continuous at time=82 days (smooth=0)
+Mcap.ff$days <- as.numeric(Mcap.ff$date - as.Date("2015-08-11"))
+offset <- 0  # optional to center "days" axis at any point
+sp <- function(x) gsp(x, knots=c(51,85,128), degree=c(2,3,2,2))
+#sp <- function(x) cs(x)
+#sp <- function(x) bs(x, knots=c(71,128))
+# Build full model with fixed effects of vis, tdom, reef, and time, random effect of colony
+Mcapdf <- Mcap.ff[Mcap.ff$reef!="42",]
+mod.all.full <- lmerTest::lmer(log(Mcapdf$tot.SH) ~ sp(Mcapdf$days) * Mcapdf$vis * Mcapdf$reef + (1 | Mcapdf$colony))
+#mod.all.full <- lmerTest::lmer(log(tot.SH) ~ poly(days, 3) * vis * reef + (1 | colony), data=Mcap.ff[Mcap.ff$reef!="42",])
+#plot(Effect(c("days", "vis", "reef"), mod.all.full, xlevels=list(days=unique(Mcap.ff$days))), 
+#     multiline=T, z.var="reef", ci.style="bars")
+# Test significance of fixed effects by backwards selection
+#modselect <- step(mod.all.full, lsmeans.calc=F, difflsmeans.calc=F, alpha.fixed=0.05)
+#summary(mod.all.full)
+# Rebuild model omitting non-significant fixed effects
+mod.all <- mod.all.full
+# Identify outliers with standardized residuals > 2.5
+out <- abs(residuals(mod.all)) > sd(residuals(mod.all)) * 2.5
+Mcap.ff[out, ]  # outlying data points
+# Refit model without outliers
+Mcapdf <- Mcapdf[!out, ]
+mod.all <- lmerTest::lmer(log(tot.SH) ~ sp(days) * vis * reef + (1 | colony), data=Mcapdf)
+#mod.all <- mod.all.full
+# Print and save ANOVA table for model
+anovatab <- anova(mod.all)
+#write.csv(round(anovatab, digits=3), file="output/Table1.csv")
+# pseudo-r2 value-- squared correlation between fitted and observed values
+summary(lm(model.response(model.frame(mod.all)) ~ fitted(mod.all)))$r.squared
 
 
-
-# # Check Mcap CT distribution
-# hist(Mcap$Mc.CT.mean, breaks=seq(0,40,1))
-# hist(Mcap[which(Mcap$date==as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
-# hist(Mcap[which(Mcap$date!=as.Date("2015-12-17")), "Mc.CT.mean"], breaks=seq(0,40,1))
-# 
-# goodMcap <- Mcap[which(Mcap$Mc.CT.mean < 30 & Mcap$date!=as.Date("2015-12-17")), ]
+# Plotting function
+plotreefs <- function(mod, n) {
+  dat <- get(as.character(summary(mod.all)$call$data))
+  dat <- droplevels(dat)
+  levs <- expand.grid(reef=levels(dat$reef), vis=levels(dat$vis), days=as.numeric(levels(as.factor(dat$days))))
+  datlevs <- list(interaction(dat$reef, dat$vis, dat$days))
+  datsumm <- data.frame(levs,
+                        mean=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=mean)$x),
+                        sd=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=sd)$x),
+                        se=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=function(x) sd(x)/sqrt(length(x)))$x),
+                        conf95=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=function(x) sd(x)/sqrt(length(x)) * qt(0.975, length(x)-1))$x))
+  datlist <- split(datsumm, f=datsumm$reef)
+  datlist <- lapply(datlist, function(x) rev(split(x, f=x$vis)))
+  pred <- expand.grid(days=seq_len(max(dat$days)), reef=levels(dat$reef), vis=levels(dat$vis))
+  bootfit <- bootMer(mod, FUN=function(x) predict(x, pred, re.form=NA), nsim=n)
+  # Extract 90% confidence interval on predicted values
+  pred$fit <- predict(mod, pred, re.form=NA)
+  pred$lci <- apply(bootfit$t, 2, quantile, 0.05)
+  pred$uci <- apply(bootfit$t, 2, quantile, 0.95)
+  predlist <- split(pred, f=pred$reef)
+  predlist <- lapply(predlist, function(x) rev(split(x, f=x$vis)))
+  par(mgp=c(1.75,0.4,0), oma=c(0,0,0,0))
+  par(mar=c(0,3,0.3,1))
+  layout(mat=matrix(seq_len(nlevels(dat$reef))))
+  for (reef in levels(dat$reef)) {
+    with(datlist[[reef]], {
+      # Create plot frame for each reef
+      plot(NA, xlim=range(dat$days), ylim=c(-11,-1), xaxt="n", bty="n", tck=-0.03, ylab="ln S/H")
+      title(paste("Reef", reef), line=-0.9, adj=0, outer=F)
+      # Plot model fit line and shaded CI for bleached and/or not bleached corals
+      with(predlist[[reef]], {
+        lapply(predlist[[reef]], function(vis) {
+          addpoly(vis$days, vis$lci, vis$uci, col=alpha(reefcols[[reef]], 0.4), xpd=NA)
+          lines(vis$days, vis$fit, lty=vislty[[vis$vis[1]]])
+        })
+      })
+      # Plot raw data +/- standard error
+      lapply(datlist[[reef]], function(vis) {
+        arrows(vis$days, vis$mean + vis$se, vis$days, vis$mean - vis$se, code=3, angle=90, length=0.03, xpd=NA)
+        points(vis$days, vis$mean, pch=vispch[[vis$vis[1]]], bg=visbg[[vis$vis[1]]])
+      })
+    })
+    #rect(xleft = 0, ybottom = -6, xright = 82, ytop = -1, lty = 3, border="black")
+  }
+  axis(side=1, at=as.numeric(as.Date(c("2014-11-01", "2014-12-01", "2015-01-01", "2015-02-01", 
+                                       "2015-03-01", "2015-04-01", "2015-05-01")) - as.Date("2014-10-24")),
+       labels=c("Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May"))
+  return(list(predlist=predlist, datlist=datlist))
+}
+# Plot
+reefcols <- list(`25`="#bebada", `44`="#8dd3c7", HIMB="#d9d9d9", `42`="green")
+vislty <- list("bleached"=2, "not bleached"=1)
+vispch <- list("bleached"=24, "not bleached"=21)
+visbg <- list("bleached"="white", "not bleached"="black")
+modelplot <- plotreefs(mod.all, 999)
