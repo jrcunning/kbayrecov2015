@@ -144,10 +144,10 @@ range(Mcap.ff$tot.SH)
 Mcap2014.f <- read.csv("Mcapf_year1.csv")
 Mcap2014.ff <- read.csv("Mcapff_year1.csv")
 
-Mcap2014.ff <- Mcap2014.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+Mcap2014.ff <- Mcap2014.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","tdom","vis","reef")]
 Mcap2014.ff$colony <- as.factor(as.character(Mcap2014.ff$colony))
 Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
-Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef")]
+Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","tdom","vis","reef")]
 
 Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
 Mcap.ff.all$syms <- factor(Mcap.ff.all$syms, levels=c("C", "CD", "DC", "D"))
@@ -279,13 +279,19 @@ modcoefs <- modcoefs[grep(pattern=":", x=rownames(modcoefs)), ]
 sigs <- modcoefs[modcoefs[,"Pr(>|t|)"] < 0.4, ]
 sigcols <- gsub("[^0-9]", "", rownames(sigs))
 Mcap.ff$shuff <- ifelse(Mcap.ff$colony %in% sigcols, "shuff", "noshuff")
+# Alt. Rule 4: Colony shuffles if changes dominance and maintains for at least two time steps
+# domseq <- aggregate(Mcap.ff$dom, by=list(colony=Mcap.ff$colony),
+#                     FUN=function(x) paste(na.omit(x), collapse=''))
+# CtoD <- domseq[grep("CCDD", domseq$x), "colony"] # 7 CtoD changes
+# DtoC <- domseq[grep("DDCC", domseq$x), "colony"] # No DtoC changes
+# Mcap.ff$shuff <- ifelse(Mcap.ff$colony %in% CtoD, "shuff", "noshuff")
 # Rule 5: Nobleach & noshuff colonies get separated into C or D
 Mcap.ff$nbnsdom <- ifelse(Mcap.ff$bleach=="notbleached" & Mcap.ff$shuff=="noshuff" & Mcap.ff$tdom=="C", "C", "NA")
 # Identify and count colonies in each group
 #Mcap.ff$group <- interaction(Mcap.ff$bleach, Mcap.ff$endwith, Mcap.ff$startdiff)
 Mcap.ff$group <- interaction(Mcap.ff$bleach, Mcap.ff$shuff, Mcap.ff$nbnsdom)
-aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) unique(as.character(x)))
-aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) length(unique(as.character(x))))
+cols <- aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) unique(as.character(x)))
+ncols <- aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) length(unique(as.character(x))))
 # Plot individual colonies in each group
 #xyplot(log(tot.SH) ~ date | group, groups=~colony, data=Mcap.ff, type="o")
 #xyplot(propD ~ date | group, groups=~colony, data=Mcap.ff, type="o")
@@ -319,7 +325,7 @@ with(mcdf, {
           cex=2, lwd=1, bg=color, lty=c(1,2,3)[c], xpd=NA)
   }
   legend("bottomright", pch=c(21,22,23), lty=c(1,2,3), bty="n", inset=0.075, cex=0.8, xpd=NA,
-         legend=c("Group 1 (n=12)", "Group 2 (n=22)", "Group 3 (n=22)"), )
+         legend=paste0(c("Group 1 (n=", "Group 2 (n=", "Group 3 (n="), ncols$x[1:3], rep(")", 3)))
   par(mar=c(3,3,0,1.5))
   plot(NA, xlim=range(date), ylim=range(logtot), xlab="", ylab="ln S/H", xaxt="n", bty="n", cex.axis=0.8)
   axis(side=1, at=as.Date(c("2015-08-01", "2015-09-01", "2015-10-01", "2015-11-01", 
@@ -333,7 +339,7 @@ with(mcdf, {
           cex=2, lwd=1, bg=color, lty=c(1,2,3,4,5)[c], xpd=NA)
   }
   legend("bottomright", pch=c(24,25), lty=c(4,5), bty="n", inset=0.075, cex=0.8, xpd=NA,
-         legend=c("Group 4 (n=10)", "Group 5 (n=2)"))
+         legend=paste0(c("Group 4 (n=", "Group 5 (n="), ncols$x[4:5], rep(")", 2)))
   # Plot color bar
   x <- quantile(par("usr")[1:2], probs=seq(0.65, 1, length.out=11))
   y <- rep(quantile(par("usr")[3:4], 1) * -0.6, 2) - c(0.4, 1)
@@ -349,9 +355,82 @@ with(mcdf, {
 
 
 
-# Which colonies "bleached" first year and did "notbleach" second year (according to -6 threshold)
-Mcap.ff[Mcap.ff$vis=="bleached" & Mcap.ff$bleach=="notbleached", c("colony", "date", "tot.SH", "propD")]
-plotcolonyXL("109")
+# DO THE ABOVE BUT FOR BOTH YEARS DATA ------
+# Alt. Rule 1: Colony "bleached" if was rated as a 1 ever
+Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
+# Rule 4: Colony shuffles if was not dominanted by same sym at every time point
+domseq <- aggregate(Mcap.ff.all$dom, by=list(colony=Mcap.ff.all$colony),
+                    FUN=function(x) paste(na.omit(x), collapse=''))
+CtoD <- domseq[grep("CCDD", domseq$x), "colony"] # 9 CtoD changes
+DtoC <- domseq[grep("DDCC", domseq$x), "colony"] # 2 DtoC changes
+Mcap.ff.all$shuff <- ifelse(Mcap.ff.all$colony %in% CtoD | Mcap.ff.all$colony %in% DtoC, "shuff", "noshuff")
+# Rule 5: Nobleach & noshuff colonies get separated into C or D
+Mcap.ff.all$nbnsdom <- ifelse(Mcap.ff.all$bleach=="notbleached" & Mcap.ff.all$shuff=="noshuff" & Mcap.ff.all$tdom=="C", "C", "NA")
+# Identify and count colonies in each group
+#Mcap.ff$group <- interaction(Mcap.ff$bleach, Mcap.ff$endwith, Mcap.ff$startdiff)
+Mcap.ff.all$group <- interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff, Mcap.ff.all$nbnsdom)
+cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
+ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
+# Plot individual colonies in each group
+#xyplot(log(tot.SH) ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
+#xyplot(propD ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
+# Aggregate data for each group on each date (mean and SD)
+mcdf <- with(Mcap.ff.all, {
+  data.frame(aggregate(cbind(logtot=log(tot.SH), propD), 
+                       by=list(bleach=bleach, nbnsdom=nbnsdom, date=date, shuff=shuff), 
+                       FUN=mean, na.rm=T),
+             logtotSD=aggregate(log(tot.SH), 
+                                by=list(bleach=bleach, nbnsdom=nbnsdom, date=date, shuff=shuff),
+                                FUN=sd, na.rm=T)$x,
+             logtotSE=aggregate(log(tot.SH), 
+                                by=list(bleach=bleach, nbnsdom=nbnsdom, date=date, shuff=shuff),
+                                FUN=function(x) sd(x, na.rm=T)/sqrt(length(x)))$x)
+})
+mcdf$group <- interaction(mcdf$bleach, mcdf$shuff, mcdf$nbnsdom)
+mcdf <- droplevels(mcdf)
+#xyplot(logtot ~ date, groups=~group, data=mcdf, type="o")
+#xyplot(propD ~ date, groups=~group, data=mcdf, type="o")
+rbPal <- colorRampPalette(c('blue','red'))
+mcdf$color <- rbPal(10)[as.numeric(cut(mcdf$propD, breaks = 10))]
+par(mfrow=c(2,1), mgp=c(2,0.6,0.1))
+with(mcdf, {
+  par(mar=c(2,3,1,1.5))
+  plot(NA, xlim=range(date), ylim=range(logtot), xlab="", ylab="ln S/H", xaxt="n", bty="n", cex.axis=0.8)
+  text(par("usr")[1],par("usr")[4], expression(bold(A.)), xpd=NA, adj=2.8, cex=1.2)
+  for (c in c(1,2,3)) {
+    df=mcdf[group==levels(group)[c], ]
+    arrows(df$date, df$logtot + df$logtotSE, df$date, df$logtot - df$logtotSE, code=3, angle=90, length=0.025, xpd=NA)
+    lines(logtot ~ date, df, type="o", pch=c(21,22,23)[c], 
+          cex=2, lwd=1, bg=color, lty=c(1,2,3)[c], xpd=NA)
+  }
+  legend("bottomright", pch=c(21,22,23), lty=c(1,2,3), bty="n", inset=0.075, cex=0.8, xpd=NA,
+         legend=paste0(c("Group 1 (n=", "Group 2 (n=", "Group 3 (n="), ncols$x[1:3], rep(")", 3)))
+  par(mar=c(3,3,0,1.5))
+  plot(NA, xlim=range(date), ylim=range(logtot), xlab="", ylab="ln S/H", xaxt="n", bty="n", cex.axis=0.8)
+  axis(side=1, at=as.Date(c("2015-08-01", "2015-09-01", "2015-10-01", "2015-11-01", 
+                            "2015-12-01", "2016-01-01", "2016-02-01")),
+       labels=c("Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"), cex.axis=0.8, line=1)
+  text(par("usr")[1],par("usr")[4], expression(bold(B.)), xpd=NA, adj=2.8, cex=1.2)
+  for (c in c(4,5)) {
+    df=mcdf[group==levels(group)[c], ]
+    arrows(df$date, df$logtot + df$logtotSE, df$date, df$logtot - df$logtotSE, code=3, angle=90, length=0.025, xpd=NA)
+    lines(logtot ~ date, df, type="o", pch=c(21,22,23,24,25)[c], 
+          cex=2, lwd=1, bg=color, lty=c(1,2,3,4,5)[c], xpd=NA)
+  }
+  legend("bottomright", pch=c(24,25), lty=c(4,5), bty="n", inset=0.075, cex=0.8, xpd=NA,
+         legend=paste0(c("Group 4 (n=", "Group 5 (n="), ncols$x[4:5], rep(")", 2)))
+  # Plot color bar
+  x <- quantile(par("usr")[1:2], probs=seq(0.65, 1, length.out=11))
+  y <- rep(quantile(par("usr")[3:4], 1) * -0.6, 2) - c(0.4, 1)
+  #rect(x[1], y[1], x[7], y[2], xpd=T)
+  for (i in 1:10) {
+    rect(x[i], y[1], x[i + 1], y[2], xpd=NA,
+         border=NA, col=c(rbPal(10))[i])
+  }
+  text(x[1]-8,y[1]-0.25,"C", xpd=NA, cex=0.8)
+  text(x[10]+14,y[1]-0.25,"D", xpd=NA, cex=0.8)
+  text(x[5]+8,y[1]-0.4, "mean prop. D", xpd=NA, pos=1, cex=0.7)
+})
 
 
 
@@ -843,6 +922,69 @@ plot42 <- function(mod, n) {
 plot42(mod.42, 99)
 
 
-# MORTALITY
-plot(Mcap.ff.all$mortality ~ Mcap.ff.all$colony)
-hist(Mcap.ff.all$mortality)
+# MODEL TRAJECTORIES FOR BOTH YEARS
+Mcap.ff.all$days <- as.numeric(Mcap.ff.all$date - as.Date("2014-10-24"))
+Mcap.ff.all$days <- scale(Mcap.ff.all$days)
+points <- unique(Mcap.ff.all$days)
+knots <- points[c(5,7,9,11,13)]
+sp <- function(x) gsp(x, knots=knots, degree=c(2,1,2,3,2,1), smooth=c(0,1,1,1,1))
+Mcapdf <- Mcap.ff.all[Mcap.ff.all$reef!="42",]
+Mcapdf$reef <- factor(Mcapdf$reef, levels=c("44","25","HIMB"))
+Mcapdf$batch <- Mcapdf$days < 195
+mod.all <- lmerTest::lmer(log(tot.SH) ~ sp(days) * vis * reef + (1 | colony), data=Mcapdf)
+#anova(mod.all)
+summary(lm(model.response(model.frame(mod.all)) ~ fitted(mod.all)))$r.squared
+
+plotreefs <- function(mod, n) {
+  dat <- get(as.character(summary(mod)$call$data))
+  dat <- droplevels(dat)
+  levs <- expand.grid(reef=levels(dat$reef), vis=levels(dat$vis), days=as.numeric(levels(as.factor(dat$days))))
+  datlevs <- list(interaction(dat$reef, dat$vis, dat$days))
+  datsumm <- data.frame(levs,
+                        mean=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=mean)$x),
+                        sd=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=sd)$x),
+                        se=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=function(x) sd(x)/sqrt(length(x)))$x),
+                        conf95=with(dat, aggregate(log(tot.SH), by=datlevs, FUN=function(x) sd(x)/sqrt(length(x)) * qt(0.975, length(x)-1))$x))
+  datlist <- split(datsumm, f=datsumm$reef)
+  datlist <- lapply(datlist, function(x) rev(split(x, f=x$vis)))
+  pred <- expand.grid(days=seq(min(dat$days), max(dat$days), length.out=475), reef=levels(dat$reef), vis=levels(dat$vis))
+  bootfit <- bootMer(mod, FUN=function(x) predict(x, pred, re.form=NA), nsim=n)
+  # Extract 90% confidence interval on predicted values
+  pred$fit <- predict(mod, pred, re.form=NA)
+  pred$lci <- apply(bootfit$t, 2, quantile, 0.05)
+  pred$uci <- apply(bootfit$t, 2, quantile, 0.95)
+  predlist <- split(pred, f=pred$reef)
+  predlist <- lapply(predlist, function(x) rev(split(x, f=x$vis)))
+  par(mgp=c(1.75,0.4,0), oma=c(0,0,0,0))
+  par(mar=c(0,3,0.3,1))
+  layout(mat=matrix(seq_len(nlevels(dat$reef)+1)))
+  for (reef in levels(dat$reef)) {
+    with(datlist[[reef]], {
+      # Create plot frame for each reef
+      plot(NA, xlim=range(dat$days), ylim=c(-9,0), xaxt="n", bty="n", tck=-0.03, ylab="ln S/H")
+      title(paste("Reef", reef), line=-0.9, adj=0, outer=F)
+      # Plot model fit line and shaded CI for bleached and/or not bleached corals
+      with(predlist[[reef]], {
+        lapply(predlist[[reef]], function(vis) {
+          addpoly(vis$days, vis$lci, vis$uci, col=alpha(reefcols[[reef]], 0.4), xpd=NA)
+          lines(vis$days, vis$fit, lty=vislty[[vis$vis[1]]])
+        })
+      })
+      # Plot raw data +/- standard error
+      lapply(datlist[[reef]], function(vis) {
+        arrows(vis$days, vis$mean + vis$se, vis$days, vis$mean - vis$se, code=3, angle=90, length=0.03, xpd=NA)
+        points(vis$days, vis$mean, pch=vispch[[vis$vis[1]]], bg=visbg[[vis$vis[1]]])
+      })
+    })
+    #rect(xleft = 0, ybottom = -6, xright = 82, ytop = -1, lty = 3, border="black")
+  }
+  axdates <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
+  unscaled <- Mcap.ff.all$days * attr(Mcap.ff.all$days, 'scaled:scale') + attr(Mcap.ff.all$days, 'scaled:center')
+  axdays <- as.numeric(axdates - as.Date("2014-10-24"))
+  tdays <- scales::rescale(axdays, to=range(dat$days), from=range(unscaled))
+
+  axis(side=1, at=tdays, labels=format(axdates, format="%b\n%y"), padj=1)
+  return(list(predlist=predlist, datlist=datlist))
+}
+pl <- plotreefs(mod.all, 99)
+
