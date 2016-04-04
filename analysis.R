@@ -165,7 +165,7 @@ depth$colony <- as.factor(depth$colony)
 Mcap.ff.all <- merge(depth, Mcap.ff.all, all.y=T)
 
 
-# Clustering colonies
+# Clustering colonies ----------
 Mcap2015.ff <- Mcap.ff.all[Mcap.ff.all$date > "2015-05-07", c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef","score")]
 Mcap2015.ff$logtot <- log(Mcap2015.ff$tot.SH)
 Mcap2015.ff$asinsqrtpropD <- asin(sqrt(Mcap2015.ff$propD))
@@ -184,8 +184,9 @@ pamk.best$nc
 Mcapdclust <- pam(Mcapd, k=3, metric="manhattan")
 
 #plot(Mcapdclust)
+
 Mcap2015.ff$cluster <- as.factor(Mcapdclust$clustering[as.character(Mcap2015.ff$colony)])
-par(mfrow=c(1,3), mar=c(2,2,2,1))
+#par(mfrow=c(1,3), mar=c(2,2,2,1))
 for (i in 1:nlevels(Mcap2015.ff$cluster)) {
   df <- Mcap2015.ff[Mcap2015.ff$cluster==i, ]
   df <- df[order(df$date), ]
@@ -195,6 +196,175 @@ for (i in 1:nlevels(Mcap2015.ff$cluster)) {
           pch=21, bg=c("blue","lightblue","pink","red")[syms])
   }
 }
+
+# Prepare data for clustering
+# CHANGE 5-07 to 5-04 to INCLUDE MAY 2015 TIME POINT
+Mcap2015.ff <- Mcap.ff.all[Mcap.ff.all$date > "2015-05-07", c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","vis","reef","score", "mortality")]
+Mcap2015.ff$logtot <- log(Mcap2015.ff$tot.SH)
+Mcap2015.ff$C.SH[Mcap2015.ff$C.SH==0] <- 2e-5
+Mcap2015.ff$logC <- log(Mcap2015.ff$C.SH)
+Mcap2015.ff$D.SH[Mcap2015.ff$D.SH==0] <- 2e-5
+Mcap2015.ff$logD <- log(Mcap2015.ff$D.SH)
+Mcap2015.ff$asinsqrtpropD <- asin(sqrt(Mcap2015.ff$propD))
+# Exclude certain colonies with not enough data
+Mcap2015.ff <- Mcap2015.ff[!Mcap2015.ff$colony %in% c(127,233,27),]
+# Exclude reef 42 and dates after 2015-12-17 (focus on bleaching and recovery period)
+Mcap2015.ff <- Mcap2015.ff[Mcap2015.ff$reef!=42 & Mcap2015.ff$date < "2015-12-18", ]
+# Reformat data for clustering and choose variables to use
+Mcapm <- melt(Mcap2015.ff, id.vars=c("colony","vis","reef","date"), measure.vars=c("logtot", "asinsqrtpropD", "score"))
+Mcapd <- dcast(Mcapm, colony ~ date + variable)
+rownames(Mcapd) <- Mcapd$colony
+Mcapd <- Mcapd[,-1]
+#test to see which colonies dont overlap
+#vegdist(Mcapd, na.rm=T)
+
+# Determine number of clusters, cluster, and assign cluster to each colony
+pamk(Mcapd, scaling=T)$nc
+Mcapdclust <- pamk(Mcapd, scaling=T, k=5)
+plot(Mcapdclust$pamobject)
+Mcap2015.ff$cluster <- as.factor(Mcapdclust$pamobject$clustering[as.character(Mcap2015.ff$colony)])
+
+# Plot individual colonies in each cluster
+for (i in 1:nlevels(Mcap2015.ff$cluster)) {
+  df <- Mcap2015.ff[Mcap2015.ff$cluster==i, ]
+  df <- df[order(df$date), ]
+  plot(NA, xlim=range(df$date), ylim=c(-11,1))
+  for (c in levels(df$colony)) {
+    lines(logtot ~ date, data=df[df$colony==c, ], type="o",
+          pch=21, bg=c("blue","lightblue","pink","red")[syms])
+  }
+}
+
+# Calculate average SH ratio and propD for each cluster over time
+clustavg <- with(Mcap2015.ff, 
+                 aggregate(cbind(logtot, asinsqrtpropD, score), by=list(cluster, date), FUN=mean, na.rm=T))
+colnames(clustavg) <- c("cluster", "date", "logtot", "asinsqrtpropD", "score")
+# Plot cluster mean SH and propD over time
+xyplot(logtot ~ date, groups=~cluster, data=clustavg, type="o")
+xyplot(asinsqrtpropD ~ date, groups=~cluster, data=clustavg, type="o")
+xyplot(score ~ date, groups=~cluster, data=clustavg, type="o")
+
+# Plot cluster mean SH over time and color points by mean propD
+rbPal <- colorRampPalette(c('blue','red'))
+clustavg$color <- rbPal(10)[as.numeric(cut(clustavg$asinsqrtpropD, breaks = 10))]
+with(clustavg, {
+  plot(NA, xlim=range(date), ylim=range(logtot))
+  for (c in rev(1:nlevels(cluster))) {
+    lines(logtot ~ date, clustavg[cluster==c, ], type="o", pch=c(21,22,23,24,25)[c], 
+          cex=1.5, lty=c(1,2,3,4,5)[c], lwd=1.5, bg=color)
+  }
+})
+
+
+# GROUP MANUALLY BASED ON SET RULES --------
+# Rule 1: Colony "bleached" if 1 or more samples had total log(S/H) less than -5.1
+#nlow <- aggregate(log(Mcap.ff$tot.SH), by=list(colony=Mcap.ff$colony), FUN=function(x) table(x < -6)[2])
+#Mcap.ff$bleach <- ifelse(Mcap.ff$colony %in% nlow[nlow$x >= 1, "colony"], "bleach", "notbleached")
+# Alt. Rule 1: Colony "bleached" if was rated as a 1 ever
+Mcap.ff$bleach <- ifelse(Mcap.ff$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
+# Rule 2: Colony ends with either C or D based on dominant clade on 2016-02-11
+#Mcap.ff$endwith <- ifelse(Mcap.ff$colony %in% Mcap.ff[Mcap.ff$date=="2016-02-11" & Mcap.ff$dom=="C", "colony"], "C", "D")
+# Alt Rule 2: Colony ends with either C or D based on dominant average of 2016-01-20 and 2016-02-11
+#avgendpropD <- with(Mcap.ff[Mcap.ff$date=="2016-01-20" | Mcap.ff$date=="2016-02-11", ], 
+#                    aggregate(propD, by=list(colony=colony), FUN=mean))
+#Mcap.ff$endwith <- ifelse(Mcap.ff$colony %in% avgendpropD[avgendpropD$x >= 0.5, "colony"], "D", "C")
+# Rule 3: If colony did not bleach and ended with D, did it start with C on 2015-08-11?
+# Mcap.ff$startwith <- ifelse(Mcap.ff$colony %in% Mcap.ff[Mcap.ff$date=="2015-08-11" & Mcap.ff$dom=="C", "colony"], "C", 
+#                             ifelse(Mcap.ff$colony %in% Mcap.ff[Mcap.ff$date=="2015-08-11" & Mcap.ff$dom=="D", "colony"], "D", NA))
+# Mcap.ff$startdiff <- ifelse(Mcap.ff$bleach=="notbleached" & Mcap.ff$endwith=="D" & Mcap.ff$startwith=="C", "C", "NA")
+# Rule 4: Colony shuffles if has significant (p<0.2) change in propD over time from regression analysis
+#xyplot(asin(sqrt(propD)) ~ date | colony, type="r", data=Mcap.ff)
+modcoefs <- summary(lm(asin(sqrt(propD)) ~ date * colony, data=Mcap.ff))$coef
+modcoefs <- modcoefs[grep(pattern=":", x=rownames(modcoefs)), ]
+sigs <- modcoefs[modcoefs[,"Pr(>|t|)"] < 0.4, ]
+sigcols <- gsub("[^0-9]", "", rownames(sigs))
+Mcap.ff$shuff <- ifelse(Mcap.ff$colony %in% sigcols, "shuff", "noshuff")
+# Rule 5: Nobleach & noshuff colonies get separated into C or D
+Mcap.ff$nbnsdom <- ifelse(Mcap.ff$bleach=="notbleached" & Mcap.ff$shuff=="noshuff" & Mcap.ff$tdom=="C", "C", "NA")
+# Identify and count colonies in each group
+#Mcap.ff$group <- interaction(Mcap.ff$bleach, Mcap.ff$endwith, Mcap.ff$startdiff)
+Mcap.ff$group <- interaction(Mcap.ff$bleach, Mcap.ff$shuff, Mcap.ff$nbnsdom)
+aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) unique(as.character(x)))
+aggregate(Mcap.ff$colony, by=list(Mcap.ff$group), FUN=function(x) length(unique(as.character(x))))
+# Plot individual colonies in each group
+#xyplot(log(tot.SH) ~ date | group, groups=~colony, data=Mcap.ff, type="o")
+#xyplot(propD ~ date | group, groups=~colony, data=Mcap.ff, type="o")
+# Aggregate data for each group on each date (mean and SD)
+mcdf <- with(Mcap.ff, {
+  data.frame(aggregate(cbind(logtot=log(tot.SH), propD), 
+                       by=list(bleach=bleach, nbnsdom=nbnsdom, date=date, shuff=shuff), 
+                       FUN=mean, na.rm=T),
+             logtotSD=aggregate(log(tot.SH), 
+                                by=list(bleach=bleach, nbnsdom=nbnsdom, date=date, shuff=shuff),
+                                FUN=sd, na.rm=T)$x,
+             logtotSE=aggregate(log(tot.SH), 
+                                by=list(bleach=bleach, const=const, date=date, shuff=shuff),
+                                FUN=function(x) sd(x, na.rm=T)/sqrt(length(x)))$x)
+})
+mcdf$group <- interaction(mcdf$bleach, mcdf$shuff, mcdf$nbnsdom)
+mcdf <- droplevels(mcdf)
+#xyplot(logtot ~ date, groups=~group, data=mcdf, type="o")
+#xyplot(propD ~ date, groups=~group, data=mcdf, type="o")
+rbPal <- colorRampPalette(c('blue','red'))
+mcdf$color <- rbPal(10)[as.numeric(cut(mcdf$propD, breaks = 10))]
+par(mfrow=c(2,1), mgp=c(2,0.6,0.1))
+with(mcdf, {
+  par(mar=c(2,3,1,1.5))
+  plot(NA, xlim=range(date), ylim=range(logtot), xlab="", ylab="ln S/H", xaxt="n", bty="n", cex.axis=0.8)
+  text(par("usr")[1],par("usr")[4], expression(bold(A.)), xpd=NA, adj=2.8, cex=1.2)
+  for (c in c(1,2,3)) {
+    df=mcdf[group==levels(group)[c], ]
+    arrows(df$date, df$logtot + df$logtotSE, df$date, df$logtot - df$logtotSE, code=3, angle=90, length=0.025, xpd=NA)
+    lines(logtot ~ date, df, type="o", pch=c(21,22,23)[c], 
+          cex=2, lwd=1, bg=color, lty=c(1,2,3)[c], xpd=NA)
+  }
+  legend("bottomright", pch=c(21,22,23), lty=c(1,2,3), bty="n", inset=0.075, cex=0.8, xpd=NA,
+         legend=c("Group 1 (n=12)", "Group 2 (n=22)", "Group 3 (n=22)"), )
+  par(mar=c(3,3,0,1.5))
+  plot(NA, xlim=range(date), ylim=range(logtot), xlab="", ylab="ln S/H", xaxt="n", bty="n", cex.axis=0.8)
+  axis(side=1, at=as.Date(c("2015-08-01", "2015-09-01", "2015-10-01", "2015-11-01", 
+                                       "2015-12-01", "2016-01-01", "2016-02-01")),
+       labels=c("Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"), cex.axis=0.8, line=1)
+  text(par("usr")[1],par("usr")[4], expression(bold(B.)), xpd=NA, adj=2.8, cex=1.2)
+  for (c in c(4,5)) {
+    df=mcdf[group==levels(group)[c], ]
+    arrows(df$date, df$logtot + df$logtotSE, df$date, df$logtot - df$logtotSE, code=3, angle=90, length=0.025, xpd=NA)
+    lines(logtot ~ date, df, type="o", pch=c(21,22,23,24,25)[c], 
+          cex=2, lwd=1, bg=color, lty=c(1,2,3,4,5)[c], xpd=NA)
+  }
+  legend("bottomright", pch=c(24,25), lty=c(4,5), bty="n", inset=0.075, cex=0.8, xpd=NA,
+         legend=c("Group 4 (n=10)", "Group 5 (n=2)"))
+  # Plot color bar
+  x <- quantile(par("usr")[1:2], probs=seq(0.65, 1, length.out=11))
+  y <- rep(quantile(par("usr")[3:4], 1) * -0.6, 2) - c(0.4, 1)
+  #rect(x[1], y[1], x[7], y[2], xpd=T)
+  for (i in 1:10) {
+    rect(x[i], y[1], x[i + 1], y[2], xpd=NA,
+         border=NA, col=c(rbPal(10))[i])
+  }
+  text(x[1]-8,y[1]-0.25,"C", xpd=NA, cex=0.8)
+  text(x[10]+14,y[1]-0.25,"D", xpd=NA, cex=0.8)
+  text(x[5]+8,y[1]-0.4, "mean prop. D", xpd=NA, pos=1, cex=0.7)
+})
+
+
+
+# Which colonies "bleached" first year and did "notbleach" second year (according to -6 threshold)
+Mcap.ff[Mcap.ff$vis=="bleached" & Mcap.ff$bleach=="notbleached", c("colony", "date", "tot.SH", "propD")]
+plotcolonyXL("109")
+
+
+
+
+plotpropD <- function(colony) {
+  plot(propD ~ days, data=Mcap.ff[Mcap.ff$colony==colony, ])
+  abline(lm(propD ~ days, data=Mcap.ff[Mcap.ff$colony==colony, ]))
+}
+
+xyplot(propD ~ days | reef, groups=~colony, type="o",
+       data=Mcap.ff[Mcap.ff$colony %in% c(125, 123, 11, 54, 71, 31, 201, 119, 215, 40, 69), ])
+head(Mcap.ff)
+
 
 
 shufflers <- c(11,31,40,54,71,119,125,223,227)
@@ -433,6 +603,7 @@ plotcolonyXL("138") #D>C, no bleaching, shuffling to D, YES score corresponds to
 #REEF 42
 plotcolonyXL("201") #C, bleaching, shuffling, YES score corresponds to SH *SHUFFLING
 plotcolonyXL("202") #C, no bleaching, no shuffling, YES score corresponds to SH
+plotcolonyXL("207")
 plotcolonyXL("211") #C, NO bleaching, no shuffling, NO score shows bleaching, but SH doesn't 
 plotcolonyXL("212") #D>C, no bleaching, no shuffling, YES score corresponds to SH
 plotcolonyXL("215") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
@@ -670,3 +841,8 @@ plot42 <- function(mod, n) {
   return(list(predlist=predlist, datlist=datlist))
 }
 plot42(mod.42, 99)
+
+
+# MORTALITY
+plot(Mcap.ff.all$mortality ~ Mcap.ff.all$colony)
+hist(Mcap.ff.all$mortality)
