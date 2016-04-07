@@ -357,8 +357,6 @@ with(mcdf, {
   text(x[10]+14,y[1]-0.25,"D", xpd=NA, cex=0.8)
   text(x[5]+8,y[1]-0.4, "mean prop. D", xpd=NA, pos=1, cex=0.7)
 })
-
-
 # DO THE ABOVE BUT FOR BOTH YEARS DATA ------
 # Alt. Rule 1: Colony "bleached" if was rated as a 1 ever
 Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
@@ -437,126 +435,15 @@ with(mcdf, {
 })
 
 
-# test for shufflers by loess ---------
-testshuffle <- function(colony) {
-    samp <- Mcap.ff.all[Mcap.ff.all$colony==colony, c("date", "propD")]
-    samp <- na.omit(samp)
-    plot(propD ~ date, samp, ylim=c(0,1), main=colony, xlab="")
-    # Fit linear model to test for shuffling
-    lin <- lm(propD ~ date, data=samp)
-    abline(lin, lty=2)
-    linres <- ifelse(summary(lin)$coef[2,4] < 0.05, "yes", "no")
-    # Fit loess model to test for shuffling
-    loess <- loess(propD ~ as.numeric(date), data=samp, family="gaussian")
-    daterange <- as.numeric(seq(min(samp$date), max(samp$date), length.out=100))
-    lines(daterange, predict(loess, newdata=daterange))
-    loesspred <- predict(loess, newdata=daterange)
-    loessthresh <- loesspred-0.5
-    CtoD <- daterange[which(diff(sign(loessthresh))>0)]
-    DtoC <- daterange[which(diff(sign(loessthresh))<0)]
-    loessres <- ifelse(length(c(CtoD, DtoC))==0, "no", "yes")
-    mtext(side=1, line=4, text=paste("linear:", linres, "\n", "loess:", loessres, sep=" "))
-    points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2)
-    tryCatch(lines(loess.smooth(x=samp$date, y=samp$propD, family="symmetric", evaluation = 100,
-                                span=1)),
-              error=function(e) print(e))
-}
-testshuffle("227")
-colony="78"
-colony="119"
-colony="31"
-colony="223"
-for (c in levels(Mcap.ff.all$colony)) {
-  testshuffle(c)
-}
-
-#GAMM4
-
-
-Mcap.ff.all$bleach <- factor(Mcap.ff.all$bleach)
-Mcap.ff.all$bleachreef <- interaction(Mcap.ff.all$bleach, Mcap.ff.all$reef)
-Mcap.ff.bleach <- droplevels(Mcap.ff.all[Mcap.ff.all$bleach=="bleach",])
-Mcap.gamm <- gamm4(log(tot.SH) ~ s(days, by=interaction(bleach, reef), k=15), 
-                   random=~(1|colony), data=Mcap.ff.all)
-newdata <- expand.grid(days=seq(min(Mcap.ff.all$days), max(Mcap.ff.all$days), length.out=100),
-                       bleach=levels(Mcap.ff.all$bleach),
-                       reef=levels(Mcap.ff.all$reef))
-newdata$pred <- predict(Mcap.gamm$gam, newdata)
-xyplot(pred ~ days, data=newdata, type="p")
-plot(Mcap.gamm$gam)
-plot(log(tot.SH) ~ days, data=Mcap.ff[Mcap.ff$vis=="bleached" & Mcap.ff$reef=="HIMB", ])
-with(newdata[newdata$bleachreef=="bleach.HIMB", ],
-     lines(pred ~ days))
-plot(log(tot.SH) ~ days, data=Mcap.ff[Mcap.ff$vis=="not bleached" & Mcap.ff$reef=="HIMB", ])
-with(newdata[newdata$bleachreef=="notbleached.HIMB", ],
-     lines(pred ~ days, ))
-with(newdata[newdata$vis=="bleached" & newdata$reef=="25", ],
-     lines(pred ~ days, ))
-with(newdata[newdata$vis=="bleached" & newdata$reef=="44", ],
-     lines(pred ~ days, ))
-with(newdata[newdata$vis=="not bleached" & newdata$reef=="25", ],
-     lines(pred ~ days, ))
-with(newdata[newdata$vis=="not bleached" & newdata$reef=="44", ],
-     lines(pred ~ days, ))
-
-plotgamm <- function(bleaches, reefs, k) {
-  df <- subset(Mcap.ff.all, bleach %in% factor(bleaches, levels=c("bleach", "notbleached")) & 
-               reef %in% factor(reefs, levels=c("25", "44", "HIMB", "42")))
-  df <- droplevels(df)
-  gamm <- gamm4(log(tot.SH) ~ s(days, by=interaction(bleach, reef), k=k) + bleach + reef, 
-                random=~(1|colony), data=df)
-  plot(log(tot.SH) ~ days, df, ylim=c(-8,1), cex=0.2)
-  newdata <- expand.grid(days=seq(min(df$days), max(df$days), length.out=100),
-                         bleach=levels(df$bleach), reef=levels(df$reef))
-  newdata$pred <- predict(gamm$gam, newdata)
-  for (i in levels(df$bleach)) {
-    for (j in levels(df$reef)) {
-      d <- newdata[newdata$bleach==i & newdata$reef==j, ]
-      lines(d$pred ~ d$days)
-    }
-  }
-}
-plotgamm("notbleached", "25", k=15)
-plotgamm("notbleached", "HIMB", k=15)
-plotgamm("notbleached", "44", k=15)
-plotgamm("bleach", "25", k=15)
-plotgamm("bleach", "44", k=15)
-plotgamm("bleach", "HIMB", k=15)
-plotgamm(c("bleach", "notbleached"), c("25", "44", "HIMB"), k=9)
-
-gmod <- gamm4(log(tot.SH) ~ s(days, by=interaction(bleach, reef), k=k) + bleach + reef, 
-              random=~(1|colony), data=Mcap.ff.all)
-summary(gmod$gam)
-
-Mcaptest <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% c(69, 119, 31, 71, 11, 123, 125), ])
-Mcaptest <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% c(119), ])
-cmod <- gam(propD ~ s(days), family=betar(link="logit"), data=Mcaptest)
-# cmod <- gam(propD ~ colony + s(days, by=colony, k=10), family="gaussian", data=Mcaptest)
-# cmod <- gam(propD ~ s(days, k=10), family="gaussian", data=Mcaptest)
-# plot(cmod)
-newdata <- expand.grid(colony=levels(Mcaptest$colony),
-                       days=seq(min(Mcaptest$days), max(Mcaptest$days), length.out=25))
-newdata$pred <- predict(cmod, newdata, type="response")
-
-with(Mcaptest, plot(log(C.SH/D.SH) ~ days))
-with(newdata, lines(pred ~ days))
-
-with(Mcaptest, plot(propD ~ days, ylim=c(0,1)))
-with(newdata, lines(pred ~ days))
-
-
-
-
-plotpropD("31")
-
-# NEED TO COMPARE LINEAR, LOESS, AND GAM FITS TO DETERMINE SHUFFLERS
-
-plotpropD <- function(col, method) {
+# COMPARE LOCFIT, LOESS, AND GAM FITS TO DETERMINE SHUFFLERS
+plotpropD <- function(col, method=c("locfit", "locfitr", "loess", "loess.s", "gam")) {
   method <- factor(method, levels=c("locfit", "locfitr", "loess", "loess.s", "gam"))
   df <- Mcap.ff.all[Mcap.ff.all$colony==col, ]
   plot(propD ~ days, df, ylim=c(0,1), main=col)
   dayrange <- as.numeric(seq(min(df$days), max(df$days), length.out=100))
-  shuffle <- as.data.frame(setNames(replicate(5, "", simplify = F), levels(method)))
+  shuffle <- as.data.frame(setNames(replicate(5, NA, simplify=F), levels(method)))
+  success <- as.data.frame(setNames(replicate(5, NA, simplify=F), levels(method)))
+  rownames(shuffle) <- col
   colors <- brewer.pal(5, "Dark2")
   # Fit Locfit
   if ("locfit" %in% method) {
@@ -569,14 +456,14 @@ plotpropD <- function(col, method) {
       points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col=colors[which(levels(method)=="locfit")])
       shuff <- ifelse(length(c(CtoD, DtoC))!=0, "shuff", "noshuff")
       shuffle$locfit <- shuff
+      success$locfit <- "fitted"
       },
       error=function(e) {
-        mtext(side=3, text="noshuff (LocFit failed)")
-        shuff <- "noshuff"
+        success$locfit <<- "failed"
         shuffle$locfit <<- "noshuff"
       },
       warning=function(w) {
-        mtext(side=3, text = "noshuff (LocFit unreliable)")
+        success$locfit <<- "unreliable"
         shuffle$locfit <<- "noshuff"
       })
   } 
@@ -586,19 +473,20 @@ plotpropD <- function(col, method) {
       df$propD[df$propD==1] <- 0.9999999
       locf2 <- locfit(propD ~ lp(days), data=df, family="betar", lfproc=locfit.robust)
       locf2pred <- predict(locf2, newdata=data.frame(days=dayrange))
-      lines(locf2pred ~ dayrange, lty=1, col=colors[which(levels(method)=="locfitr")])
+      lines(locf2pred ~ dayrange, lty=2, col=colors[which(levels(method)=="locfitr")])
       CtoD <- dayrange[which(diff(sign(locf2pred-0.5))>0)]
       DtoC <- dayrange[which(diff(sign(locf2pred-0.5))<0)]
       points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col=colors[which(levels(method)=="locfitr")])
       shuff <- ifelse(length(c(CtoD, DtoC))!=0, "shuff", "noshuff")
       shuffle$locfitr <- shuff
+      success$locfitr <- "fitted"
       },
       error=function(e) {
-        mtext(side=1, text="LocFit robust failed")
+        success$locfitr <<- "failed"
         shuffle$locfitr <<- "noshuff"
       },
       warning=function(w) {
-        mtext(side=1, text="LocFit robust unreliable")
+        success$locfitr <<- "unreliable"
         shuffle$locfitr <<- "noshuff"
       })
   } 
@@ -606,122 +494,116 @@ plotpropD <- function(col, method) {
     tryCatch({
       loess <- loess(propD ~ days, data=df, family="symmetric")
       loesspred <- predict(loess, newdata=data.frame(days=dayrange))
-      lines(loesspred ~ dayrange, lty=2, col=colors[which(levels(method)=="loess")])
+      lines(loesspred ~ dayrange, lty=3, col=colors[which(levels(method)=="loess")])
       CtoD <- dayrange[which(diff(sign(loesspred-0.5))>0)]
       DtoC <- dayrange[which(diff(sign(loesspred-0.5))<0)]
       points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col=colors[which(levels(method)=="loess")])
       shuff <- ifelse(length(c(CtoD, DtoC))!=0, "shuff", "noshuff")
       shuffle$loess <- shuff
+      success$loess <- "fitted"
       }, 
       error=function(e) {
-        mtext(side=3, text="LOESS failed")
+        success$loess <<- "failed"
         shuffle$loess <<- "noshuff"
       },
       warning=function(w) {
-        mtext(side=3, text="LOESS unreliable")
+        success$loess <<- "unreliable"
         shuffle$loess <<- "noshuff"
       })
   } 
   if ("loess.s" %in% method) {
     tryCatch({
       loesssmooth <- loess.smooth(df$days, df$propD, family="symmetric", evaluation = 100)
-      lines(loesssmooth, lty=2, col=colors[which(levels(method)=="loess.s")])
+      lines(loesssmooth, lty=4, col=colors[which(levels(method)=="loess.s")])
       CtoD <- dayrange[which(diff(sign(loesssmooth$y-0.5))>0)]
       DtoC <- dayrange[which(diff(sign(loesssmooth$y-0.5))<0)]
       points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col=colors[which(levels(method)=="loess.s")])
       shuff <- ifelse(length(c(CtoD, DtoC))>0, "shuff", "noshuff")
       shuffle$loess.s <- shuff
+      success$loess.s <- "fitted"
       }, 
       error=function(e) {
-        mtext(side=3, text="loess.smooth failed")
+        success$loess.s <<- "failed"
         shuffle$loess.s <<- "noshuff"
       },
       warning=function(w) {
-        mtext(side=3, text="loess.smooth unreliable")
+        success$loess.s <<- "unreliable"
         shuffle$loess.s <<- "noshuff"
       })
   } 
   if ("gam" %in% method) {
     tryCatch({
-      gambeta <- gam(propD ~ s(days), family=betar(link="logit"), data=df)
-      gambetapred <- predict(gam, newdata=data.frame(days=dayrange), type="response")
-      lines(gambetapred ~ dayrange, lty=4, col=colors[which(levels(method)=="gam")])
-      CtoD <- dayrange[which(diff(sign(gambetapred-0.5))>0)]
-      DtoC <- dayrange[which(diff(sign(gambetapred-0.5))<0)]
+      gam <- gam(propD ~ s(days), family="gaussian", data=df)
+      gampred <- predict(gam, newdata=data.frame(days=dayrange), type="response")
+      lines(gampred ~ dayrange, lty=5, col=colors[which(levels(method)=="gam")])
+      CtoD <- dayrange[which(diff(sign(gampred-0.5))>0)]
+      DtoC <- dayrange[which(diff(sign(gampred-0.5))<0)]
       points(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col=colors[which(levels(method)=="gam")])
       shuff <- ifelse(length(c(CtoD, DtoC))>0, "shuff", "noshuff")
       shuffle$gam <- shuff
+      success$gam <- "fitted"
       }, 
       error=function(e) {
-        mtext(side=3, text="GAM failed")
+        success$gam <<- "failed"
         shuffle$gam <<- "noshuff"
       },
       warning=function(w) {
-        mtext(side=3, text="GAM unreliable")
+        success$gam <<- "unreliable"
         shuffle$gam <<- "noshuff"
       })
   }
-  legend(x=0, y=1.2, legend=as.character(method), 
-         lty=c(1,2,3,4,5)[method], col=colors[method], xpd=NA)
-  return(list(shuffle=shuffle))
-}
-pop <- plotpropD("80", method=c("locfit", "locfitr", "loess", "loess.s", "gam"))
-pop
-
-interestings <- c(130,128,125,123,119,92,80,78,72,71,69,54,40,31,11)
-
-for (col in levels(Mcap.ff.all$colony)) {
-  plotpropD(col)
+  success <- success[which(!is.na(success))]
+  legend(x=par("usr")[1], y=1.4, legend=paste(colnames(success), "(", success, ")", sep=""), 
+         lty=c(1,2,3,4,5)[method], col=colors[method], xpd=NA, bty="n", cex=0.8)
+  return(shuffle)
 }
 
-plotpropD("80", method=c("locfit", "gam"))
-plotpropD("31")
-plotpropD("239")
-plotpropD("119")
-plotpropD("223")
-plotpropD("227")
-plotpropD("40")
-plotpropD("31")
-plotpropD("71")
-plotpropD("207")
-plotpropD("11")
-plotpropD("123")
-plotpropD("125")
+#interestings <- list(130,128,125,123,119,92,80,78,72,71,69,54,40,31,11)
+# DETERMINE SHUFFLERS
+res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
+rownames(res) <- unlist(levels(Mcap.ff.all$colony))
+res
+apply(res, 2, table)
 
+# GROUP COLONIES BY SHUFFLING, BLEACHING, AND NBNSDOM
+Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "locfit"]
+Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
+Mcap.ff.all$nbnsdom <- ifelse(Mcap.ff.all$bleach=="notbleached" & Mcap.ff.all$shuff=="noshuff" & Mcap.ff.all$tdom=="C", "C", "NA")
+Mcap.ff.all$group <- droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff, Mcap.ff.all$nbnsdom))
 
+# FIT PROPD GAMM BY GROUP
+propDmod <- gamm4(propD ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
+plot(propDmod$gam)
 
-xyplot(propD ~ days | reef, groups=~colony, type="o",
-       data=Mcap.ff[Mcap.ff$colony %in% c(125, 123, 11, 54, 71, 31, 201, 119, 215, 40, 69), ])
-head(Mcap.ff)
+# FIT TOTSH GAMM BY GROUP
+totSHmod <- gamm4(log(tot.SH) ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
+plot(totSHmod$gam)
 
-
-
-shufflers <- c(11,31,40,54,71,119,125,223,227)
-nonshufflers <- as.numeric(as.character(levels(Mcap2015.ff$colony)[!levels(Mcap2015.ff$colony) %in% shufflers]))
-par(mfrow=c(1,2))
-for (g in c("shufflers", "nonshufflers")) {
-  g <- get(g)
-  df <- Mcap2015.ff[as.character(Mcap2015.ff$colony) %in% as.character(g), ]
-  df <- df[order(df$date), ]
-  plot(NA, xlim=range(df$date), ylim=c(-11,0))
-  for (c in levels(df$colony)) {
-    lines(logtot ~ date, data=df[df$colony==c, ], type="o",
-          pch=21, bg=c("blue","lightblue","pink","red")[syms])
-  }
+# PLOT TOTSH COLORED BY PROPD BY GROUP
+newdata <- expand.grid(days=seq(0,475,1), group=levels(Mcap.ff.all$group))
+newdata$tot.SH <- predict(totSHmod$gam, newdata)
+newdata$propD <- predict(propDmod$gam, newdata)
+#xyplot(tot.SH ~ days, groups=~group, newdata)
+#xyplot(propD ~ days, groups=~group, newdata)
+rbPal <- colorRampPalette(c('blue','red'))
+newdata$color <- rbPal(100)[as.numeric(cut(newdata$propD, breaks = 100))]
+par(mfrow=c(2,1), mar=c(2,2,2,2))
+plot(NA, ylim=c(-7,-1), xlim=c(0,475))
+for (group in levels(Mcap.ff.all$group)[1:3]) {
+  df <- newdata[newdata$group==group, ]
+  points(tot.SH ~ days, df, col=color)
+}
+plot(NA, ylim=c(-7,-1), xlim=c(0,475))
+for (group in levels(Mcap.ff.all$group)[4:5]) {
+  df <- newdata[newdata$group==group, ]
+  points(tot.SH ~ days, df, col=color)
 }
 
-Mcap.ff.all$shuff <- ifelse(Mcap.ff.all$colony %in% shufflers, 1, 0)
-anova(lm(shuff ~ vis, data=Mcap.ff))
-plot(factor(shuff) ~ interaction(factor(vis), factor(reef)), data=Mcap.ff)
-minsh <- aggregate(data.frame(min=log(Mcap.ff$tot.SH)), by=list(colony=Mcap.ff$colony), FUN=min)
-Cs <- unique(Mcap2014.f[Mcap2014.f$tdom=="C", "colony"])
-minsh$shuff <- ifelse(minsh$colony %in% shufflers, 1, 0)
-minsh <- minsh[minsh$colony %in% Cs, ]
-plot(shuff ~ min, data=minsh)
-lr <- glm(shuff~min,data=minsh,family=binomial)
-lr
-predict(lr,data.frame(x=-6),type="response")
-
+cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
+ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
+# Plot individual colonies in each group
+xyplot(log(tot.SH) ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
+xyplot(propD ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
 
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
