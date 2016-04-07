@@ -435,7 +435,7 @@ with(mcdf, {
 })
 
 
-# COMPARE LOCFIT, LOESS, AND GAM FITS TO DETERMINE SHUFFLERS
+# FUNCTION TO TO DETERMINE SHUFFLERS USING VARIOUS FITTING TECHNIQUES
 plotpropD <- function(col, method=c("locfit", "locfitr", "loess", "loess.s", "gam")) {
   method <- factor(method, levels=c("locfit", "locfitr", "loess", "loess.s", "gam"))
   df <- Mcap.ff.all[Mcap.ff.all$colony==col, ]
@@ -558,52 +558,142 @@ plotpropD <- function(col, method=c("locfit", "locfitr", "loess", "loess.s", "ga
   return(shuffle)
 }
 
-#interestings <- list(130,128,125,123,119,92,80,78,72,71,69,54,40,31,11)
 # DETERMINE SHUFFLERS
 res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
 rownames(res) <- unlist(levels(Mcap.ff.all$colony))
-res
-apply(res, 2, table)
+# Count number of shufflers determined by each fitting technique
+apply(res, 2, table)  # locfit identifies most shufflers
 
-# GROUP COLONIES BY SHUFFLING, BLEACHING, AND NBNSDOM
+# GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOM
 Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "locfit"]
 Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
-Mcap.ff.all$nbnsdom <- ifelse(Mcap.ff.all$bleach=="notbleached" & Mcap.ff.all$shuff=="noshuff" & Mcap.ff.all$tdom=="C", "C", "NA")
-Mcap.ff.all$group <- droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff, Mcap.ff.all$nbnsdom))
+Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff)))
+Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "group"] <- ifelse(Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "tdom"]=="C", "notbleached.noshuff.C", "notbleached.noshuff.D")
+Mcap.ff.all$group <- factor(Mcap.ff.all$group)
+Mcap.ff.all[Mcap.ff.all$colony=="207", "group"] <- "bleach.shuff"
+
+#IDENTIFY AND COUNT COLONIES IN EACH GROUP
+cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
+ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
+
+#XYPLOT EACH COLONY BY GROUP, FITTED RESPONSES -----
+for (g in levels(Mcap.ff.all$group)) {
+  df <- subset(Mcap.ff.all, group==g)
+  print(doubleYScale(
+    # Plot total S/H with GAM fit
+    xyplot(log(tot.SH) ~ days | colony, ylim=c(-11,1), data=df, main=g, panel = function(x, y, ...) {
+      panel.xyplot(x, y, cex=0.5, ...)
+      dayrange <- seq(min(x), max(x), 1)
+      tryCatch({
+        m <- gam(y ~ s(x), family="gaussian")
+        p <- predict(m, newdata=data.frame(x=dayrange))
+        panel.lines(p ~ dayrange)
+      },
+      error=function(e) {
+        m <- gam(y ~ s(x, k=3), family="gaussian")
+        p <- predict(m, newdata=data.frame(x=dayrange))
+        panel.lines(p ~ dayrange)
+      },
+      warning=function(w) print(w))
+    }),
+    # Plot propD with locfit
+    xyplot(propD ~ days | colony, ylim=c(-0.1, 1.1), data=df, panel = function(x, y, ...) {
+      panel.xyplot(x, y, cex=0.25, ...)
+      dayrange <- seq(min(x), max(x), 1)
+      tryCatch({
+        m <- locfit(y ~ lp(x, nn=1), family="betar", lfproc=locfit.raw)
+        p <- predict(m, newdata=data.frame(x=dayrange))
+        panel.lines(p ~ dayrange)
+        CtoD <- dayrange[which(diff(sign(p-0.5))>0)]
+        DtoC <- dayrange[which(diff(sign(p-0.5))<0)]
+        panel.xyplot(c(CtoD, DtoC), rep(0.5, length(c(CtoD, DtoC))), pch="*", cex=2, col="red")
+      },
+      error=function(e) print(e),
+      warning=function(w) print(w))
+    })
+  ))
+}
+
+#XYPLOT EACH COLONY BY GROUP, RAW DATA -----
+for (g in levels(Mcap.ff.all$group)) {
+  df <- subset(Mcap.ff.all, group==g)
+  print(doubleYScale(
+    # Plot total S/H with GAM fit
+    xyplot(log(tot.SH) ~ date | colony, ylim=c(-11,1), data=df, type="o", cex=0.25, main=g),
+    # Plot propD with locfit
+    xyplot(propD ~ date | colony, ylim=c(-0.1, 1.1), data=df, type="o", cex=0.25)
+  ))
+}
+
+
+
+
+       
+
+
+
+
+
+
+plotpropD("39")
+
+
+
+## example of smooths conditioned on factors from ?gam.models 
+library(mgcv) 
+dat <- gamSim(4) 
+## fit model... 
+b <- gam(y ~ fac+s(x2,by=fac)+s(x0),data=dat) 
+plot(b,pages=1) 
+## now predict on x2 grid at 2 levels of `fac'... 
+x2 <- seq(0,1,length=100);x3 <- c(x2,x2) 
+newd <- data.frame(x2=x3,x0=rep(.5,100),fac=c(rep("1",100),rep("2",100))) 
+Xp <- predict(b,newd,type="lpmatrix") 
+X <- Xp[1:100,]-Xp[101:200,] 
+X[,1:3] <- 0;X[,22:39] <- 0 
+## Now X%*%coef(b) gives difference between smooths for fac=="1" and 
+## fac=="2"... 
+md <- X%*%coef(b) 
+## following evaluates diag(X%*%vcov(b)%*%t(X)) the s.e. of 
+## difference just computed.... 
+se <- rowSums((X%*%vcov(b))*X) 
+## So getting upper and lower confidence limits is easy 
+## (could use qt(.975,b$df.residual) in place of 2 below) 
+ul <- md + 2 * se;ll <- md - 2 * se 
+## plot smooths and difference 
+par(mfrow=c(2,2));plot(b,select=1);plot(b,select=2) 
+plot(x2,md,ylim=range(c(ul,ll)),type="l") 
+lines(x2,ul,col=2);lines(x2,ll,col=2) 
 
 # FIT PROPD GAMM BY GROUP
 propDmod <- gamm4(propD ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
-plot(propDmod$gam)
-
+plot(residuals(propDmod$gam))
 # FIT TOTSH GAMM BY GROUP
 totSHmod <- gamm4(log(tot.SH) ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
+plot(residuals(totSHmod$gam))
 plot(totSHmod$gam)
-
 # PLOT TOTSH COLORED BY PROPD BY GROUP
 newdata <- expand.grid(days=seq(0,475,1), group=levels(Mcap.ff.all$group))
-newdata$tot.SH <- predict(totSHmod$gam, newdata)
+newdata$tot.SH <- predict(totSHmod$gam, newdata, se.fit=T)
 newdata$propD <- predict(propDmod$gam, newdata)
 #xyplot(tot.SH ~ days, groups=~group, newdata)
-#xyplot(propD ~ days, groups=~group, newdata)
+xyplot(propD ~ days, groups=~group, newdata, ylim=c(0,1))
 rbPal <- colorRampPalette(c('blue','red'))
 newdata$color <- rbPal(100)[as.numeric(cut(newdata$propD, breaks = 100))]
 par(mfrow=c(2,1), mar=c(2,2,2,2))
 plot(NA, ylim=c(-7,-1), xlim=c(0,475))
-for (group in levels(Mcap.ff.all$group)[1:3]) {
+for (group in levels(Mcap.ff.all$group)[c(1,3,4)]) {
   df <- newdata[newdata$group==group, ]
   points(tot.SH ~ days, df, col=color)
 }
 plot(NA, ylim=c(-7,-1), xlim=c(0,475))
-for (group in levels(Mcap.ff.all$group)[4:5]) {
+for (group in levels(Mcap.ff.all$group)[c(2,5)]) {
   df <- newdata[newdata$group==group, ]
   points(tot.SH ~ days, df, col=color)
 }
 
-cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
-ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
-# Plot individual colonies in each group
-xyplot(log(tot.SH) ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
-xyplot(propD ~ date | group, groups=~colony, data=Mcap.ff.all, type="o")
+
+
 
 # • Analysis: Symbiodinium community structure --------------------------
 # Proportion of samples with C only, D only, and C+D mixtures
