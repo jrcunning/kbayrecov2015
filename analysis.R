@@ -1,23 +1,32 @@
+# LOAD, MERGE, AND QC DATA
 source("setup.R")
 
-# DETERMINE SHUFFLERS -----
+# FILTER OUT COLONIES WITH <= 4 OBSERVATIONS -----
+nobs <- aggregate(data.frame(obs=Mcap.ff.all$colony), by=list(colony=Mcap.ff.all$colony), FUN=length)
+Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% nobs[nobs$obs > 4, "colony"], ])
+
+# IDENTIFY COLONIES THAT SHUFFLED SYMBIONTS -----
 res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
 rownames(res) <- unlist(levels(Mcap.ff.all$colony))
 apply(res, 2, table)  # Count number of shufflers determined by each fitting technique
 Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "locfit"]
 
-# GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOM -----
+# GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOMINANT CLADE -----
 Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
 Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff)))
 Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "group"] <- ifelse(Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "tdom"]=="C", "notbleached.noshuff.C", "notbleached.noshuff.D")
 Mcap.ff.all$group <- factor(Mcap.ff.all$group)
 Mcap.ff.all[Mcap.ff.all$colony=="207", "group"] <- "bleach.shuff"  # assume this colony was C-dominated prior to bleaching
-
-# IDENTIFY AND COUNT COLONIES IN EACH GROUP -----
+# IDENTIFY AND COUNT COLONIES IN EACH GROUP
 cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
 ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
 
-# XYPLOT EACH COLONY BY GROUP, RAW DATA -----
+# PLOT SYMBIONT ABUNDANCE AND COMPOSITION FOR INDIVIDUAL COLONIES -----
+# XYPLOT ALL COLONIES IN EACH GROUP
+xyplot(log(tot.SH) ~ date | group, groups=~colony, ylim=c(-11,1), data=Mcap.ff.all, type="o", cex=0.25, main=group)
+xyplot(propD ~ date | group, groups=~colony, ylim=c(-0.1,1.1), data=Mcap.ff.all, type="o", cex=0.25, main=group)
+
+# XYPLOT INDIVIDUAL COLONIES BY GROUP, RAW DATA
 for (g in levels(Mcap.ff.all$group)) {
   df <- subset(Mcap.ff.all, group==g)
   print(doubleYScale(
@@ -28,7 +37,7 @@ for (g in levels(Mcap.ff.all$group)) {
   ))
 }
 
-# XYPLOT EACH COLONY BY GROUP, FITTED RESPONSES -----
+# XYPLOT INDIVIDUAL COLONIES BY GROUP, FITTED RESPONSES
 for (g in levels(Mcap.ff.all$group)) {
   df <- subset(Mcap.ff.all, group==g)
   print(doubleYScale(
@@ -66,263 +75,76 @@ for (g in levels(Mcap.ff.all$group)) {
   ))
 }
 
-# MODEL TOTAL S/H AND PROPD FOR EACH GROUP -----
+# MODEL SYMBIONT ABUNDANCE AND COMPOSITION FOR EACH GROUP -----
 # FIT PROPD GAMM BY GROUP
+xyplot(propD ~ days | group, data=Mcap.ff.all)
 propDmod <- gamm4(propD ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
 # FIT TOTSH GAMM BY GROUP
+xyplot(log(tot.SH) ~ days | group, data=Mcap.ff.all)
 totSHmod <- gamm4(log(tot.SH) ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
 # GET FITTED VALUES FOR EACH GROUP
 newdata <- expand.grid(days=seq(0,475,1), group=levels(Mcap.ff.all$group))
 newdata$tot.SH <- predict(totSHmod$gam, newdata)
 newdata$propD <- predict(propDmod$gam, newdata)
+newdata$predse <- predict(totSHmod$gam, newdata, se.fit=T)$se.fit
 # PLOT FITTED VALUES FOR EACH GROUP
 xyplot(tot.SH ~ days, groups=~group, newdata)
 xyplot(propD ~ days, groups=~group, newdata, ylim=c(0,1))
+doubleYScale(xyplot(tot.SH ~ days | group, newdata, type="l"),
+             xyplot(propD ~ days | group, newdata, type="l", ylim=c(-0.1,1.1)))
 
-# MULTIPANEL TOTSH FITS (SHUFFLERS vs. NONSHUFFLERS) COLORED BY PROPD -----
-rbPal <- colorRampPalette(c('blue','red'))
+# PLOT FITTED RESPONSES FOR EACH GROUP, MULTIPANEL SHUFFLERS vs. NONSHUFFLERS -----
+rbPal <- colorRampPalette(c('dodgerblue','red'))
 newdata$color <- rbPal(100)[as.numeric(cut(newdata$propD, breaks = 100))]
-par(mfrow=c(2,1), mar=c(2,2,2,2))
-plot(NA, ylim=c(-7,-1), xlim=c(0,475))
-for (group in levels(Mcap.ff.all$group)[c(1,3,4)]) {
+par(mfrow=c(2,1), mar=c(1,3,1,2), mgp=c(1.5,0.4,0), tcl=-0.25)
+plot(NA, ylim=c(-7,0), xlim=range(newdata$days), xaxs="i", xaxt="n", yaxt="n", ylab="")
+axis(side=2, at=seq(-7,-1,1), cex.axis=0.75)
+dateticks <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
+axis(side=1, at=as.numeric(dateticks-as.Date("2014-10-24")), labels=NA)
+for (group in levels(newdata$group)[c(1,3,4)]) {
   df <- newdata[newdata$group==group, ]
-  points(tot.SH ~ days, df, col=color)
+  addpoly(df$days, df$tot.SH - 1.96*df$predse, df$tot.SH + 1.96*df$predse, col=alpha("gray", 0.7))
 }
-plot(NA, ylim=c(-7,-1), xlim=c(0,475))
+points(tot.SH ~ days, newdata[as.numeric(newdata$group) %in% c(1,3,4), ], pch=21, col=color, bg=color)
+text(par("usr")[1], quantile(par("usr")[3:4], 0.9), pos=4,
+     expression(bold("A. Non-shuffling colonies")))
+gradient.rect(quantile(par("usr")[1:2], 0.1), quantile(par("usr")[3:4], 0.1),
+              quantile(par("usr")[1:2], 0.35), quantile(par("usr")[3:4], 0.175),
+              col=rbPal(100), border=NA)
+text(quantile(par("usr")[1:2], c(0.1, 0.35)), rep(quantile(par("usr")[3:4], 0.1375), 2), pos=c(2,4), labels=c("C", "D"), cex=0.75)
+par(mar=c(2,3,0,2))
+plot(NA, ylim=c(-7,0), xlim=range(newdata$days), xaxs="i", xlab="", ylab="", xaxt="n", yaxt="n", xpd=NA)
+axis(side=2, at=seq(-7,-1,1), cex.axis=0.75)
+mtext(side=2, text="Symbiont abundance (ln S/H)", line=-1.5, outer=T)
+dateticks <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
+axis(side=1, at=as.numeric(dateticks-as.Date("2014-10-24")), labels=format(dateticks, "%b"), cex.axis=0.75)
 for (group in levels(Mcap.ff.all$group)[c(2,5)]) {
   df <- newdata[newdata$group==group, ]
-  points(tot.SH ~ days, df, col=color)
+  addpoly(df$days, df$tot.SH - 1.96*df$predse, df$tot.SH + 1.96*df$predse, col=alpha("gray", 0.7))
 }
+points(tot.SH ~ days, newdata[as.numeric(newdata$group) %in% c(2,5), ], pch=21, col=color, bg=color)
+gradient.rect(quantile(par("usr")[1:2], 0.1), quantile(par("usr")[3:4], 0.1),
+              quantile(par("usr")[1:2], 0.35), quantile(par("usr")[3:4], 0.175),
+              col=rbPal(100), border=NA)
+text(quantile(par("usr")[1:2], c(0.1, 0.35)), rep(quantile(par("usr")[3:4], 0.1375), 2), pos=c(2,4), labels=c("C", "D"), cex=0.75)
+text(par("usr")[1], quantile(par("usr")[3:4], 0.9), pos=4,
+     expression(bold("B. Shuffling colonies")))
+
+# WHAT DRIVES SHUFFLING VS NONSHUFFLING?
+MC <- unique(Mcap.ff.all[, c("colony", "reef","shuff","bleach", "group")])
+MC$shuff <- factor(MC$shuff)
+
+MCb <- droplevels(MC[MC$bleach=="bleach", ])
+plot(MCb$group ~ MCb$reef)
+chisq.test(MCb$reef, MCb$group)
+
+MCnb <- droplevels(MC[MC$bleach=="notbleached", ])
+plot(MCnb$group ~ MCnb$reef)
+chisq.test(MCnb$reef, MCnb$group)
 
 
 
-
-# • Analysis: Symbiodinium community structure --------------------------
-# Proportion of samples with C only, D only, and C+D mixtures
-symtab <- table(Mcap.f$syms)
-symtab
-samples <- c(symtab[1], symtab[2] + symtab[3], symtab[4])
-prop.table(samples)
-# Proportion clade D in samples with C+D mixtures
-propD <- Mcap.f$propD[which(Mcap.f$propD > 0 & Mcap.f$propD < 1)]
-hist(propD)
-range(propD)
-# Percent of samples with >10% non-dominant symbiont (between 10% and 90% clade D)
-sum(prop.table(hist(propD, plot=F)$counts)[2:9])
-# Proportion of colonies with C only, D only, and C+D mixtures, aggregated over time
-colonies <- aggregate(Mcap.f$syms, by=list(colony=Mcap.f$colony), FUN=paste, collapse="")
-colonies$C[grep("C", colonies$x)] <- "C"
-colonies$D[grep("D", colonies$x)] <- "D"
-colonies$present <- ifelse(is.na(colonies$C), ifelse(is.na(colonies$D), "none", "D only"), ifelse(is.na(colonies$D), "C only", "C+D"))
-prop.table(table(colonies$present))
-# Summarize clade composition of samples and colonies
-clades <- data.frame(Colonies=matrix(prop.table(table(colonies$present))), Samples=prop.table(samples))
-clades
-# Proportion of colonies with overall C or D dominance (most abundant over time)
-propdom <- prop.table(table(Mcap.f[which(Mcap.f$fdate=="2015-08-11"), "tdom"]))
-propdom
-with(Mcap.f[which(Mcap.f$fdate=="2015-10-01"), ], table(interaction(tdom, reef)))
-
-# quick plot of S/H over time for all colonies --------
-xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
-       type="o", ylim=c(-11,1))
-
-xyplot(log(tot.SH) ~ date | vis + reef, groups= ~ colony, data=Mcap.ff.all[order(Mcap.ff.all$date), ],
-       type="o", ylim=c(-11,1))
-
-# Analysis of mean SH over time at each reef ----------
-# filter out 12.17 because data are bad
-# Mcap <- Mcap[which(Mcap$date!="2015-12-17" & !(Mcap$date=="2015-10-21" & Mcap$Mc.CT.mean>30)), ]
-# Mcap <- Mcap[which(Mcap$Mc.CT.mean < 30), ]
-
-happy <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$vis), FUN=mean, na.rm=T)
-colnames(happy) <- c("date", "vis", "logSH")
-yay <- (subset(happy, vis=="bleached"))
-cool <- (subset(happy, vis=="not bleached"))
-plot(yay$date, yay$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n")
-lines(cool$date, cool$logSH, type="b")
-dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
-axis(side=1, at=dates, labels=as.character(dates))
-
-rainbow <- aggregate(log(Mcap.ff$tot.SH), by=list(Mcap.ff$date, Mcap.ff$reef, Mcap.ff$vis), FUN=mean, na.rm=T)
-colnames(rainbow) <- c("date", "reef", "vis", "logSH")
-thing1 <- subset(rainbow, (vis=="bleached" & reef=="HIMB"))
-thing2 <- subset(rainbow, (vis=="bleached" & reef=="25"))
-thing3 <- subset(rainbow, (vis=="bleached" & reef=="44"))
-thing4 <- subset(rainbow, (vis=="bleached" & reef=="42"))
-thing5 <- subset(rainbow, (vis=="not bleached" & reef=="HIMB"))
-thing6 <- subset(rainbow, (vis=="not bleached" & reef=="25"))
-thing7 <- subset(rainbow, (vis=="not bleached" & reef=="44"))
-thing8 <- subset(rainbow, (vis=="not bleached" & reef=="42"))
-
-plot(thing1$date, thing1$logSH, type="b", xlab="Date", ylab="Value of logSH", main="Average Mcap SH Values", xaxt="n", col="darkorange", pch=5, ylim=c(-10,0))
-lines(thing2$date, thing2$logSH, type="b", col="magenta", pch=0)
-lines(thing3$date, thing3$logSH, type="b", col="turquoise", pch=1)
-lines(thing4$date, thing4$logSH, type="b", col="slateblue", pch=2)
-lines(thing5$date, thing5$logSH, type="b", col="darkorange", pch=5, lty=2)
-lines(thing6$date, thing6$logSH, type="b", col="magenta", pch=0, lty=2)
-lines(thing7$date, thing7$logSH, type="b", col="turquoise", pch=1, lty=2)
-lines(thing8$date, thing8$logSH, type="b", col="slateblue", pch=2, lty=2)
-dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
-axis(side=1, at=dates, labels=as.character(dates))
-legend("bottomright", legend=c("Reef HIMB", "Reef 25", "Reef 44", "Reef 42"), lty=c(1,1,1,1), col=c("darkorange","magenta","turquoise","slateblue"),inset=.05)
-legend("bottomright", legend=c("Bleached", "Not Bleached"), lty=c(1,2), col=c("black","black"), inset=c(.05,.25))
-
-
-# Plot abundance trajectory for a single reef ------
-reefHIMB <- Mcap.ff[Mcap.ff$reef=="HIMB", ] 
-reef25 <- Mcap.ff[Mcap.ff$reef=="25", ]
-reef42 <- Mcap.ff[Mcap.ff$reef=="42", ]
-reef44 <- Mcap.ff[Mcap.ff$reef=="44", ]
-
-plot(reefHIMB$date, log(reefHIMB$tot.SH), 
-     pch=21, type="b", bg=c("pink","purple")[reefHIMB$vis], 
-     lines(reefHIMB$colony)
-     )
-
-plot(reef25$date, log(reef25$tot.SH), 
-     pch=21, type="b", bg=c("pink","purple")[reef25$vis], 
-     lines(reef25$colony)
-)
-plot(reef42$date, log(reef42$tot.SH), 
-      pch=21, type="b", bg=c("pink","purple")[reef42$vis], 
-      lines(reef42$colony)
-)
-plot(reef44$date, log(reef44$tot.SH), 
-     pch=21, type="b", bg=c("pink","purple")[reef44$vis], 
-     lines(reef44$colony)
-)
-
-xyplot(log(tot.SH) ~ days | vis + reef, groups= ~ colony, data=Mcap.ff[order(Mcap.ff$days), ],
-       type="o", ylim=c(-11,1))
-
-# Plot abundance trajectory for a single colony -----
-plotcolony <- function(colony) {
-  df <- Mcap.ff[Mcap.ff$colony==colony, ]
-  df <- df[order(df$date), ]
-  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-9,1), xaxt="n")
-  dates <- as.Date(c("2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
-  axis(side=1, at=dates, labels=as.character(dates))
-  abline(h=-1, lty=2)
-}
-
-plotcolonyXL <- function(colony) {
-  df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
-  df <- df[order(df$date), ]
-  par(mar = c(5,5,2,5))
-  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
-  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-14", "2015-05-06", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
-  axis(side=1, at=dates, labels=as.character(dates))
-  abline(h=-1, lty=2)
-  par(new = T)
-  plot(df$date, df$score, type="b", pch=16, axes=F, xlab=NA, ylab=NA, ylim=c(1,3))
-  axis(side=4, at = c(1,2,3), labels= c(1,2,3))
-  mtext(side = 4, line = 3, 'Visual Score')
-}
-
-plotcolonyXXL <- function(colony) {
-  df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
-  df <- df[order(df$date), ]
-  par(mar = c(5,5,2,5))
-  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xaxt="n", xlab="Date", ylab="log SH")
-  dates <- as.Date(c("2014-10-24", "2014-11-04", "2014-11-24", "2014-12-16", "2015-01-13", "2015-02-10", "2015-03-10", "2015-05-06", "2015-06-05", "2015-07-14", "2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04", "2016-01-16", "2016-02-11"))
-  axis(side=1, at=dates, labels=as.character(dates))
-  abline(h=-1, lty=2)
-  par(new = T)
-  plot(df$date, df$depth, type="l", pch=16, axes=F, xlab=NA, ylab=NA, ylim=c(1,10))
-  axis(side=4, at = c(1,2,3,4,5,6,7,8,9,10), labels= c(1,2,3,4,5,6,7,8,9,10))
-  mtext(side = 4, line = 3, 'Depth')
-}
-
-plotcolonyXXL("11") #2
-plotcolonyXXL("31") #2
-plotcolonyXXL("40") #5
-plotcolonyXXL("54") #8
-plotcolonyXXL("71") #5
-plotcolonyXXL("78") #6
-plotcolonyXXL("80") #7
-plotcolonyXXL("119") #5
-plotcolonyXXL("125") #7
-plotcolonyXXL("130") #6
-plotcolonyXXL("215") #2
-plotcolonyXXL("223") #2
-plotcolonyXXL("227") #4
-
-
-#REEF HIMB
-plotcolonyXL("3") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("4") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("8") #D>C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("11") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("19") #C, bleaching, no shuffling, NO: SH recovers, score does not (all 1)
-plotcolonyXL("20") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("25") #C, no bleaching, no shuffling, NO: SH seems to not bleach, score is ones
-plotcolonyXL("26") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("31") #C, severe bleaching, odd shuffling to D, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("32") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("40") #C>D, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("43") #C, severe bleaching, no shuffling, NO: SH recovers, score does not
-plotcolonyXL("44") #C, no bleaching, no shuffling, YES score corresponds to SH
-
-#REEF 25
-plotcolonyXL("51") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("52") #D>C, no bleaching, for 9/14 shuffled to C>D then returned to D>C, YES score corresponds to SH
-plotcolonyXL("53") #C, bleaching, no shuffling, YES score corresponds to SH (although 12.04.15 is wierd)
-plotcolonyXL("54") #C, no bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("57") #C, severe bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("58") #D>C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("65") #C, baby bleaching, no shuffling, NO: SH does not appear to change, vis shows bleaching
-plotcolonyXL("66") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("69") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("70") #D>C, no bleaching, baby shuffling to D on 2/11, YES score corresponds to SH *(baby)SHUFFLING
-plotcolonyXL("71") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("72") #C>D, no bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("77") #C, severe bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("78") #D>C, no bleaching, no shufflilng, YES score corresponds to SH
-plotcolonyXL("79") #C, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("80") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("83") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("84") #C, no bleaching, no shuffling, YES score corresponds to SH
-
-#REEF 44
-plotcolonyXL("109") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("110") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("112") #D>C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("119") #C>D, NO bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("120") #D>C, no bleaching, no shuffling, YES score correponds to SH
-plotcolonyXL("121") #C, NO bleaching, no shuffling, NO score shows bleaching, symbionts don't
-plotcolonyXL("122") #C>D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("123") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("124") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("125") #C>D, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("126") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("127") # only one data point, C
-plotcolonyXL("130") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("131") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("132") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("137") #C, no bleaching, no shuffling, NO score shows bleaching, SH does not
-plotcolonyXL("138") #D>C, no bleaching, shuffling to D, YES score corresponds to SH *SHUFFLING
-
-#REEF 42
-plotcolonyXL("201") #C, bleaching, shuffling, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("202") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("207")
-plotcolonyXL("211") #C, NO bleaching, no shuffling, NO score shows bleaching, but SH doesn't 
-plotcolonyXL("212") #D>C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("215") #C, severe bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("216") #D, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("223") #C, bleaching, shuffling to D>C, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("224") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("227") #D, bleaching, random shuffling, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("228") #C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("233")
-plotcolonyXL("234") #D, no bleaching, random shuffling but ended at D, YES score corresponds to SH *SHUFFLING
-plotcolonyXL("237") #C, no bleaching, no shuffling, NO score shows bleaching, SH doesn't
-plotcolonyXL("238") #D>C, no bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("239") #C, bleaching, no shuffling, YES score corresponds to SH
-plotcolonyXL("240") # D, no bleaching, no shuffling, YES score corresponds to SH
-
-#SHUFFLING ---------
+# HEATMAP OF SHUFFLING ---------
 
 # Create matrix for image function
 clades <- melt(Mcap.f, id.vars=c("colony", "date", "vis", "reef", "tdom"), measure.vars="syms",
@@ -407,12 +229,7 @@ text(xpd=T, y=y[1] - 0.75, pos=1, cex=0.6,
 text(xpd=T, y=quantile(par("usr")[3:4], 0) * -1.05 - 2.5, pos=1, cex=0.9,
      x=quantile(par("usr")[1:2], 0.5),
      labels=expression(italic(Symbiodinium)~clades))
-
-
-
-
-
-# MODEL TRAJECTORIES ------
+# MODEL TRAJECTORIES USING SPIDA ------
 # Model trajectories of symbiont populations over time using mixed model
 #   Build piecewise polynomial model with knot at 82 days (January time point)
 #   From October to January, fit a quadratic polynomial (1st element of degree=2)
@@ -611,4 +428,3 @@ plotreefs <- function(mod, n) {
   return(list(predlist=predlist, datlist=datlist))
 }
 pl <- plotreefs(mod.all, 99)
-
