@@ -139,7 +139,7 @@ Mcap.f <- filter.dups(Mcap)  # filter duplicate sample runs
 boxplot(Mcap.f$Mc.CT.mean)
 thresh <- boxplot.stats(Mcap.f$Mc.CT.mean)$stats[5]
 Mcap.ff <- Mcap.f[which(Mcap.f$Mc.CT.mean <= thresh), ]
-Mcap.ff <- Mcap.ff[which(Mcap.ff$tot.SH < 1), ]
+#Mcap.ff <- Mcap.ff[which(Mcap.ff$tot.SH < 1), ]
 range(Mcap.ff$tot.SH)
 
 # IMPORT YEAR1 DATA/ read in coral condition data and merge with Mcap.ff.all
