@@ -104,7 +104,9 @@ Mcap <- Mcap[!(Mcap$colony=="58" & Mcap$date=="2015-11-04"),]
 Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date=="2015-10-01"),]
 Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date>"2015-12-03"), ] # This colony is dead in pics, likely continued sampling neighboring colony
 Mcap <- Mcap[!(Mcap$colony=="123" & Mcap$date=="2016-01-20"),]
-
+Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date>="2015-08-11"),] # Reexamination of pics reveals colony died and wrong colony sampled from this point on
+Mcap <- Mcap[!(Mcap$colony=="54" & Mcap$date>="2015-09-14"),] # Tag was moved onto wrong colony on 2015-09-14 -- all samples from then onward are from wrong colony
+Mcap <- Mcap[!(Mcap$colony=="80" & Mcap$date>="2015-08-11"),] # colony died and wrong colony continued to be samples
 # Filter duplicates -----------------------
 filter.dups <- function(data) {
   keep <- data.frame()  # Create empty data frame to receive runs to keep
