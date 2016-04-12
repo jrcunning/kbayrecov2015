@@ -3,7 +3,8 @@
 # =================================================================================================
 # • Load libraries --------------------------------------------------------------------------------
 library(lme4); library(MASS); library(reshape2); library(lattice); library(lmerTest); library(lsmeans)
-library(scales); library(merTools); library(devtools); library(pBrackets); library(lattice)
+library(scales); library(merTools); library(devtools); library(RColorBrewer)
+library(locfit); library(mgcv); library(gamm4)
 ## SPIDA package available at http://r-forge.r-project.org/projects/spida/
 #system(paste("svn checkout svn://svn.r-forge.r-project.org/svnroot/spida/"))
 #devtools::install("spida/pkg")
