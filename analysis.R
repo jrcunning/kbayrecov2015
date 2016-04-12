@@ -5,6 +5,12 @@ source("setup.R")
 nobs <- aggregate(data.frame(obs=Mcap.ff.all$colony), by=list(colony=Mcap.ff.all$colony), FUN=length)
 Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% nobs[nobs$obs > 4, "colony"], ])
 
+# WAS VISUAL BLEACHING SCORE THE SAME IN BOTH YEARS?
+Mcap.ff.all$year <- ifelse(Mcap.ff.all$date < as.Date("2015-05-07"), "y1", "y2")
+bscore <- aggregate(data.frame(minscore=Mcap.ff.all$score), 
+                    by=list(colony=Mcap.ff.all$colony, year=Mcap.ff.all$year), FUN=min, na.rm=T)
+dcast(bscore, colony ~ year, value.var="minscore")
+
 # IDENTIFY COLONIES THAT SHUFFLED SYMBIONTS -----
 res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
 rownames(res) <- unlist(levels(Mcap.ff.all$colony))
@@ -130,8 +136,8 @@ text(quantile(par("usr")[1:2], c(0.1, 0.35)), rep(quantile(par("usr")[3:4], 0.13
 text(par("usr")[1], quantile(par("usr")[3:4], 0.9), pos=4,
      expression(bold("B. Shuffling colonies")))
 
-# WHAT DRIVES SHUFFLING VS NONSHUFFLING?
-MC <- unique(Mcap.ff.all[, c("colony", "reef","shuff","bleach", "group")])
+# DOES SHUFFLING DEPEND ON REEF?
+MC <- unique(Mcap.ff.all[, c("colony", "reef","shuff","bleach", "group", "depth")])
 MC$shuff <- factor(MC$shuff)
 
 MCb <- droplevels(MC[MC$bleach=="bleach", ])
@@ -141,6 +147,29 @@ chisq.test(MCb$reef, MCb$group)
 MCnb <- droplevels(MC[MC$bleach=="notbleached", ])
 plot(MCnb$group ~ MCnb$reef)
 chisq.test(MCnb$reef, MCnb$group)
+
+# DOES SHUFFLING DEPEND ON DEPTH?
+plot(shuff ~ depth, MCb)
+chisq.test(MCb$depth, MCb$shuff)
+plot(as.numeric(shuff) ~ depth, MCnb)
+
+
+# DOES SHUFFLING RELATE TO BLEACHING SEVERITY?
+bsev <- aggregate(data.frame(minscore=Mcap.ff.all$tot.SH), 
+                    by=list(colony=Mcap.ff.all$colony), FUN=min, na.rm=T)
+bsev <- merge(MCb, bsev)
+
+plot(bsev$shuff ~ log(bsev$minscore))
+plot(as.numeric(bsev$shuff) ~ log(bsev$minscore))
+
+mod <- glm(shuff ~ depth * log(minscore), family="binomial", data=bsev)
+plot(mod)
+anova(mod, test="Chisq")
+plot(effect("depth:log(minscore)", mod), x.var="minscore")
+plot(effect("depth", mod))
+
+
+
 
 
 
