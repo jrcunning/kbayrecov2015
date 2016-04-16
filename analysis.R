@@ -19,8 +19,9 @@ apply(res, 2, table)  # Count number of shufflers determined by each fitting tec
 Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "loess"]
 
 # GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOMINANT CLADE -----
-Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
-Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff)))
+Mcap.ff.all$bleach1 <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1 & Mcap.ff.all$year=="y1", "colony"], "bleach", "notbleached")
+Mcap.ff.all$bleach2 <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1 & Mcap.ff.all$year=="y2", "colony"], "bleach", "notbleached")
+Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach2, Mcap.ff.all$shuff)))
 Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "group"] <- ifelse(Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "tdom"]=="C", "notbleached.noshuff.C", "notbleached.noshuff.D")
 Mcap.ff.all$group <- factor(Mcap.ff.all$group)
 #Mcap.ff.all[Mcap.ff.all$colony=="207", "group"] <- "bleach.shuff"  # assume this colony was C-dominated prior to bleaching
@@ -34,12 +35,14 @@ cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x
 ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
 cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group2), FUN=function(x) unique(as.character(x)))
 ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group2), FUN=function(x) length(unique(as.character(x))))
+
 #Plot Bleaching vs non bleaching dominant symbiont clade
 eight11 <- Mcap.ff.all[Mcap.ff.all$date=="2015-08-11",]
-st <- table(eight11$dom, eight11$bleach)
-bars <- barplot(st, col=c("blue","red"), legend= rownames(st), ylab="Number of Colonies", names.arg=c("Bleached", "Not Bleached"))
-text(0.7, 24, labels="n=23", xpd=NA)
+st <- table(eight11$dom, eight11$bleach2)
+bars <- barplot(st, col=c("blue","red"), width=1, xlim=c(0,6), ylab="Number of Colonies", names.arg=c("Bleached", "Not Bleached"))
+text(0.7, 22, labels="n=21", xpd=NA)
 text(1.9, 26, labels="n=25", xpd=NA)
+legend("topleft",legend=c("D","C"), bty="n", pt.cex=2, pch=22, pt.bg=c("red","blue"))
 
 #Pie chart function for proportion D at a specific timepoint
 h <- Mcap.ff.all[(Mcap.ff.all$colony=="71" & Mcap.ff.all$date=="2015-10-21"),]
@@ -69,7 +72,7 @@ plotcolony <- function(colony) {
   legend("topleft", legend=c("C","C>D","D>C","D"), pch=21, pt.cex=2, pt.bg=c("blue","lightblue","pink","red"))
 }
 
-plotcolony(125)
+plotcolony(71)
 
 # PLOT SYMBIONT ABUNDANCE AND COMPOSITION FOR INDIVIDUAL COLONIES -----
 # XYPLOT ALL COLONIES IN EACH GROUP
@@ -126,22 +129,25 @@ for (g in levels(Mcap.ff.all$group)) {
 }
 
 # MODEL SYMBIONT ABUNDANCE AND COMPOSITION FOR EACH GROUP -----
+# Exclude groups that didn't quite make it
+df <- Mcap.ff.all[as.numeric(Mcap.ff.all$group2) %in% c(2,4,6,8,10), ]
+df <- droplevels(df)
 # FIT PROPD GAMM BY GROUP
-xyplot(propD ~ days | group, data=Mcap.ff.all)
-propDmod <- gamm4(propD ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
+xyplot(propD ~ days | group2, data=df)
+propDmod <- gamm4(propD ~ group2 + s(days, by=group2), random=~(1|colony), data=df)
 # FIT TOTSH GAMM BY GROUP
-xyplot(log(tot.SH) ~ days | group, data=Mcap.ff.all)
-totSHmod <- gamm4(log(tot.SH) ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
+xyplot(log(tot.SH) ~ days | group, data=df)
+totSHmod <- gamm4(log(tot.SH) ~ group2 + s(days, by=group2), random=~(1|colony), data=df)
 # GET FITTED VALUES FOR EACH GROUP
-newdata <- expand.grid(days=seq(0,524,1), group=levels(Mcap.ff.all$group))
+newdata <- expand.grid(days=seq(0,524,1), group2=levels(df$group2))
 newdata$tot.SH <- predict(totSHmod$gam, newdata)
 newdata$propD <- predict(propDmod$gam, newdata)
 newdata$predse <- predict(totSHmod$gam, newdata, se.fit=T)$se.fit
 # PLOT FITTED VALUES FOR EACH GROUP
-xyplot(tot.SH ~ days, groups=~group, newdata)
-xyplot(propD ~ days, groups=~group, newdata, ylim=c(0,1))
-doubleYScale(xyplot(tot.SH ~ days | group, newdata, type="l"),
-             xyplot(propD ~ days | group, newdata, type="l", ylim=c(-0.1,1.1)))
+xyplot(tot.SH ~ days, groups=~group2, newdata)
+xyplot(propD ~ days, groups=~group2, newdata, ylim=c(0,1))
+doubleYScale(xyplot(tot.SH ~ days | group2, newdata, type="l"),
+             xyplot(propD ~ days | group2, newdata, type="l", ylim=c(-0.1,1.1)))
 
 # PLOT FITTED RESPONSES FOR EACH GROUP, MULTIPANEL SHUFFLERS vs. NONSHUFFLERS -----
 rbPal <- colorRampPalette(c('dodgerblue','red'))
@@ -151,11 +157,11 @@ plot(NA, ylim=c(-7,0), xlim=range(newdata$days), xaxs="i", xaxt="n", yaxt="n", y
 axis(side=2, at=seq(-7,-1,1), cex.axis=0.75)
 dateticks <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
 axis(side=1, at=as.numeric(dateticks-as.Date("2014-10-24")), labels=NA)
-for (group in levels(newdata$group)[c(1,3,4)]) {
-  df <- newdata[newdata$group==group, ]
+for (group2 in levels(newdata$group2)[c(1,3,4)]) {
+  df <- newdata[newdata$group2==group2, ]
   addpoly(df$days, df$tot.SH - 1.96*df$predse, df$tot.SH + 1.96*df$predse, col=alpha("gray", 0.7))
 }
-points(tot.SH ~ days, newdata[as.numeric(newdata$group) %in% c(1,3,4), ], pch=21, col=color, bg=color)
+points(tot.SH ~ days, newdata[as.numeric(newdata$group2) %in% c(1,3,4), ], pch=21, col=color, bg=color)
 text(par("usr")[1], quantile(par("usr")[3:4], 0.9), pos=4,
      expression(bold("A. Non-shuffling colonies")))
 gradient.rect(quantile(par("usr")[1:2], 0.1), quantile(par("usr")[3:4], 0.1),
@@ -168,11 +174,11 @@ axis(side=2, at=seq(-7,-1,1), cex.axis=0.75)
 mtext(side=2, text="Symbiont abundance (ln S/H)", line=-1.5, outer=T)
 dateticks <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
 axis(side=1, at=as.numeric(dateticks-as.Date("2014-10-24")), labels=format(dateticks, "%b"), cex.axis=0.75)
-for (group in levels(Mcap.ff.all$group)[c(2,5)]) {
-  df <- newdata[newdata$group==group, ]
+for (group2 in levels(df$group2)[c(2,5)]) {
+  df <- newdata[newdata$group2==group2, ]
   addpoly(df$days, df$tot.SH - 1.96*df$predse, df$tot.SH + 1.96*df$predse, col=alpha("gray", 0.7))
 }
-points(tot.SH ~ days, newdata[as.numeric(newdata$group) %in% c(2,5), ], pch=21, col=color, bg=color)
+points(tot.SH ~ days, newdata[as.numeric(newdata$group2) %in% c(2,5), ], pch=21, col=color, bg=color)
 gradient.rect(quantile(par("usr")[1:2], 0.1), quantile(par("usr")[3:4], 0.1),
               quantile(par("usr")[1:2], 0.35), quantile(par("usr")[3:4], 0.175),
               col=rbPal(100), border=NA)
