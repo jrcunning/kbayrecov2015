@@ -5,10 +5,11 @@
 library(lme4); library(MASS); library(reshape2); library(lattice); library(lmerTest); library(lsmeans)
 library(scales); library(merTools); library(devtools); library(RColorBrewer)
 library(locfit); library(mgcv); library(gamm4)
+library(plotrix); library(latticeExtra)
 ## SPIDA package available at http://r-forge.r-project.org/projects/spida/
 #system(paste("svn checkout svn://svn.r-forge.r-project.org/svnroot/spida/"))
 #devtools::install("spida/pkg")
-library(spida)
+#library(spida)
 
 addpoly <- function(x, y1, y2, col=alpha("lightgrey", 0.8), ...){
   ii <- order(x)
@@ -67,6 +68,18 @@ fails <- Mcap[Mcap$fail==TRUE, ]
 # Remove failed samples
 Mcap <- Mcap[which(Mcap$fail==FALSE), ]
 
+# # Manually remove inappropriate data points
+Mcap <- Mcap[!(Mcap$colony=="3" & Mcap$date=="2016-03-31"),] #Unrealistic data point, probably coloony four by mistake
+Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date>"2015-12-03"),] #Colony is dead in pics, likely continued sampling neighboring colony
+Mcap <- Mcap[!(Mcap$colony=="54" & Mcap$date>="2015-09-14"),] #Tag was moved onto wrong colony on 2015-09-14 -- all samples from then onward are from wrong colony
+Mcap <- Mcap[!(Mcap$colony=="58" & Mcap$date=="2015-11-04"),] #The rest is mostly D and this point has no D
+Mcap <- Mcap[!(Mcap$colony=="80" & Mcap$date>="2015-08-11"),] #Colony died and wrong colony continued to be sampled
+Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date=="2015-08-11"),] #Reexamination of pics reveals colony died 10.01.15. Wrong colony sampled this timepoint as well.
+Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date>="2015-10-01"),] #Reexamination of pics reveals colony died and wrong colony sampled from this point on
+Mcap <- Mcap[!(Mcap$colony=="123" & Mcap$date=="2016-01-20"),] #all D when otherwise all C
+Mcap <- Mcap[!(Mcap$colony=="77" & Mcap$date=="2015-12-17"),] #OUtlier SH ratio, Photo reveals variation within colony, this sample probably came from a bleached tip while other parts of the colony appeared to be recovering, not representative of full colony recovery
+Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date=="2015-10-01"),] #Outlier SH ratio
+
 # Calculate total S/H ratio and D/C ratio and propD
 colnames(Mcap)[which(colnames(Mcap) %in% c("C.Mc", "D.Mc"))] <- c("C.SH", "D.SH")  # Rename cols
 Mcap$C.SH[is.na(Mcap$C.SH)] <- 0
@@ -85,8 +98,7 @@ Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
 # Assign visual ID and reef location metadata
 Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$colony)) %% 2 == 0, "not bleached", "bleached"))
 Mcap$reef <- cut(as.numeric(as.character(Mcap$colony)), 
-                 breaks=c(1,51,101,201,251), labels=c("HIMB", "25", "44", "42"))
-
+                 breaks=c(1,50,100,200,250), labels=c("HIMB", "25", "44", "42"))
 
 # # Identify overall dominant symbiont clade across time points based on mean proportion clade D
 meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
@@ -98,16 +110,7 @@ Mcap$tdom <- meanpropD[as.character(Mcap$colony), "tdom"]
 Mcap[which(Mcap$tot.SH==0), ]
 Mcap[which(Mcap$tot.SH==0), "tot.SH"] <- 2e-5
 
-# Manually remove inappropriate data points
-Mcap <- Mcap[!(Mcap$colony=="77" & Mcap$date=="2015-12-17"),] #Photo reveals variation within colony, this sample probably came from a bleached tip while other parts of the colony appeared to be recovering, not representative of full colony recovery
-Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date=="2015-09-14"),] #Photo reveals different bleached colony very close to actual colony that is assumed to be mistaken for colony 130 on this timepoint. Bleached colony died by next timepoint.
-Mcap <- Mcap[!(Mcap$colony=="58" & Mcap$date=="2015-11-04"),]
-Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date=="2015-10-01"),]
-Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date>"2015-12-03"), ] # This colony is dead in pics, likely continued sampling neighboring colony
-Mcap <- Mcap[!(Mcap$colony=="123" & Mcap$date=="2016-01-20"),]
-Mcap <- Mcap[!(Mcap$colony=="130" & Mcap$date>="2015-08-11"),] # Reexamination of pics reveals colony died and wrong colony sampled from this point on
-Mcap <- Mcap[!(Mcap$colony=="54" & Mcap$date>="2015-09-14"),] # Tag was moved onto wrong colony on 2015-09-14 -- all samples from then onward are from wrong colony
-Mcap <- Mcap[!(Mcap$colony=="80" & Mcap$date>="2015-08-11"),] # colony died and wrong colony continued to be samples
+
 # Filter duplicates -----------------------
 filter.dups <- function(data) {
   keep <- data.frame()  # Create empty data frame to receive runs to keep
@@ -152,6 +155,10 @@ Mcap2014.ff <- read.csv("Mcapff_year1.csv")
 Mcap2014.ff <- Mcap2014.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","tdom","vis","reef")]
 Mcap2014.ff$colony <- as.factor(as.character(Mcap2014.ff$colony))
 Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
+# MANUALLY REMOVE BAD YEAR1 DATA
+Mcap2014.ff <- Mcap2014.ff[!(Mcap2014.ff$colony=="80" & Mcap2014.ff$date=="2015-01-14"), ]
+Mcap2014.ff <- Mcap2014.ff[!(Mcap2014.ff$colony=="130" & Mcap2014.ff$date=="2014-12-16"), ]
+
 Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","tdom","vis","reef")]
 
 Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
