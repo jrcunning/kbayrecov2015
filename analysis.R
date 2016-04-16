@@ -1,9 +1,10 @@
 # LOAD, MERGE, AND QC DATA
 source("setup.R")
 
-# FILTER OUT COLONIES WITH <= 4 OBSERVATIONS -----
+# # FILTER OUT COLONIES WITH <= 4 OBSERVATIONS -----
 nobs <- aggregate(data.frame(obs=Mcap.ff.all$colony), by=list(colony=Mcap.ff.all$colony), FUN=length)
 Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% nobs[nobs$obs > 4, "colony"], ])
+Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$reef!="42", ])
 
 # WAS VISUAL BLEACHING SCORE THE SAME IN BOTH YEARS?
 Mcap.ff.all$year <- ifelse(Mcap.ff.all$date < as.Date("2015-05-07"), "y1", "y2")
@@ -15,22 +16,65 @@ dcast(bscore, colony ~ year, value.var="minscore")
 res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
 rownames(res) <- unlist(levels(Mcap.ff.all$colony))
 apply(res, 2, table)  # Count number of shufflers determined by each fitting technique
-Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "locfit"]
+Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "loess"]
 
 # GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOMINANT CLADE -----
 Mcap.ff.all$bleach <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1, "colony"], "bleach", "notbleached")
 Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach, Mcap.ff.all$shuff)))
 Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "group"] <- ifelse(Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "tdom"]=="C", "notbleached.noshuff.C", "notbleached.noshuff.D")
 Mcap.ff.all$group <- factor(Mcap.ff.all$group)
-Mcap.ff.all[Mcap.ff.all$colony=="207", "group"] <- "bleach.shuff"  # assume this colony was C-dominated prior to bleaching
+#Mcap.ff.all[Mcap.ff.all$colony=="207", "group"] <- "bleach.shuff"  # assume this colony was C-dominated prior to bleaching
+# ADDITIONAL GROUPING FACTOR BY SURVIVAL OF SECOND BLEACHING EVENT
+numberofsamplesafter12042015 <- aggregate(data.frame(n=Mcap.ff.all$date>="2015-12-04"), by=list(colony=Mcap.ff.all$colony), FUN=function(x) table(x)[2])
+Mcap.ff.all$survival <- ifelse(Mcap.ff.all$colony %in% numberofsamplesafter12042015[numberofsamplesafter12042015$n>=2, "colony"], TRUE, FALSE)
+Mcap.ff.all$group2 <- interaction(Mcap.ff.all$survival, Mcap.ff.all$group)
+
 # IDENTIFY AND COUNT COLONIES IN EACH GROUP
 cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) unique(as.character(x)))
 ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group), FUN=function(x) length(unique(as.character(x))))
+cols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group2), FUN=function(x) unique(as.character(x)))
+ncols <- aggregate(Mcap.ff.all$colony, by=list(Mcap.ff.all$group2), FUN=function(x) length(unique(as.character(x))))
+#Plot Bleaching vs non bleaching dominant symbiont clade
+eight11 <- Mcap.ff.all[Mcap.ff.all$date=="2015-08-11",]
+st <- table(eight11$dom, eight11$bleach)
+bars <- barplot(st, col=c("blue","red"), legend= rownames(st), ylab="Number of Colonies", names.arg=c("Bleached", "Not Bleached"))
+text(0.7, 24, labels="n=23", xpd=NA)
+text(1.9, 26, labels="n=25", xpd=NA)
+
+#Pie chart function for proportion D at a specific timepoint
+h <- Mcap.ff.all[(Mcap.ff.all$colony=="71" & Mcap.ff.all$date=="2015-10-21"),]
+htable <- c(h$propD, 1-h$propD)
+pie(htable)
+
+pieintheface <- function(x,y) {
+  h <- Mcap.ff.all[(Mcap.ff.all$colony==x & Mcap.ff.all$date==y),]
+  htable <- c(h$propD, 1-h$propD)
+  lbls <- c("Clade D","Clade C")
+  pct <- round(htable/sum(htable)*100)
+  lbls <- paste(lbls,pct)
+  lbls <- paste(lbls,"%",sep="")
+  pie(htable, col=c("red","blue"), labels=lbls, main=y)
+}
+
+pieintheface("71", "2016-02-11")
+
+plotcolony <- function(colony) {
+  df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
+  df <- df[order(df$date), ]
+  par(mar=c(5,3,1,1))
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-9,1), xlab="", ylab="Log SH", xaxt="n")
+  dates <- as.Date(c("2014-10-24","2014-11-04","2014-11-24","2014-12-16","2015-01-14","2015-05-06","2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04","2015-12-17", "2016-01-20", "2016-02-11","2016-03-31"))
+  axis(side=1, at=dates, labels=FALSE)
+  text(x=dates, y=par("usr")[3]-.2, srt=45, labels=as.character(dates), xpd=NA, pos=2)
+  legend("topleft", legend=c("C","C>D","D>C","D"), pch=21, pt.cex=2, pt.bg=c("blue","lightblue","pink","red"))
+}
+
+plotcolony(125)
 
 # PLOT SYMBIONT ABUNDANCE AND COMPOSITION FOR INDIVIDUAL COLONIES -----
 # XYPLOT ALL COLONIES IN EACH GROUP
-xyplot(log(tot.SH) ~ date | group, groups=~colony, ylim=c(-11,1), data=Mcap.ff.all, type="o", cex=0.25, main=group)
-xyplot(propD ~ date | group, groups=~colony, ylim=c(-0.1,1.1), data=Mcap.ff.all, type="o", cex=0.25, main=group)
+xyplot(log(tot.SH) ~ date | group, groups=~colony, ylim=c(-11,1), data=Mcap.ff.all, type="o", cex=0.25)
+xyplot(propD ~ date | group, groups=~colony, ylim=c(-0.1,1.1), data=Mcap.ff.all, type="o", cex=0.25)
 
 # XYPLOT INDIVIDUAL COLONIES BY GROUP, RAW DATA
 for (g in levels(Mcap.ff.all$group)) {
@@ -89,7 +133,7 @@ propDmod <- gamm4(propD ~ group + s(days, by=group), random=~(1|colony), data=Mc
 xyplot(log(tot.SH) ~ days | group, data=Mcap.ff.all)
 totSHmod <- gamm4(log(tot.SH) ~ group + s(days, by=group), random=~(1|colony), data=Mcap.ff.all)
 # GET FITTED VALUES FOR EACH GROUP
-newdata <- expand.grid(days=seq(0,475,1), group=levels(Mcap.ff.all$group))
+newdata <- expand.grid(days=seq(0,524,1), group=levels(Mcap.ff.all$group))
 newdata$tot.SH <- predict(totSHmod$gam, newdata)
 newdata$propD <- predict(propDmod$gam, newdata)
 newdata$predse <- predict(totSHmod$gam, newdata, se.fit=T)$se.fit
@@ -457,3 +501,4 @@ plotreefs <- function(mod, n) {
   return(list(predlist=predlist, datlist=datlist))
 }
 pl <- plotreefs(mod.all, 99)
+
