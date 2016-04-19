@@ -70,7 +70,7 @@ Mcap <- Mcap[which(Mcap$fail==FALSE), ]
 
 # # Manually remove inappropriate data points
 Mcap <- Mcap[!(Mcap$colony=="3" & Mcap$date=="2016-03-31"),] #Unrealistic data point, probably coloony four by mistake
-Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date>"2015-12-03"),] #Colony is dead in pics, likely continued sampling neighboring colony
+Mcap <- Mcap[!(Mcap$colony=="31" & Mcap$date>"2015-11-03"),] #Colony is dead in pics, likely continued sampling neighboring colony
 Mcap <- Mcap[!(Mcap$colony=="54" & Mcap$date>="2015-09-14"),] #Tag was moved onto wrong colony on 2015-09-14 -- all samples from then onward are from wrong colony
 Mcap <- Mcap[!(Mcap$colony=="58" & Mcap$date=="2015-11-04"),] #The rest is mostly D and this point has no D
 Mcap <- Mcap[!(Mcap$colony=="80" & Mcap$date>="2015-08-11"),] #Colony died and wrong colony continued to be sampled
@@ -98,7 +98,7 @@ Mcap$dom <- factor(substr(as.character(Mcap$syms), 1, 1))
 # Assign visual ID and reef location metadata
 Mcap$vis <- factor(ifelse(as.numeric(as.character(Mcap$colony)) %% 2 == 0, "not bleached", "bleached"))
 Mcap$reef <- cut(as.numeric(as.character(Mcap$colony)), 
-                 breaks=c(1,50,100,200,250), labels=c("HIMB", "25", "44", "42"))
+                 breaks=c(0,50,100,200,250), labels=c("HIMB", "25", "44", "42"))
 
 # # Identify overall dominant symbiont clade across time points based on mean proportion clade D
 meanpropD <- aggregate(Mcap$propD, by=list(colony=Mcap$colony), FUN=mean, na.rm=T)
@@ -158,6 +158,7 @@ Mcap2014.ff$date <- as.Date(Mcap2014.ff$date)
 # MANUALLY REMOVE BAD YEAR1 DATA
 Mcap2014.ff <- Mcap2014.ff[!(Mcap2014.ff$colony=="80" & Mcap2014.ff$date=="2015-01-14"), ]
 Mcap2014.ff <- Mcap2014.ff[!(Mcap2014.ff$colony=="130" & Mcap2014.ff$date=="2014-12-16"), ]
+Mcap2014.ff <- Mcap2014.ff[!(Mcap2014.ff$colony=="7" & Mcap2014.ff$date>="2014-12-16"), ]
 
 Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms","dom","tdom","vis","reef")]
 
@@ -171,7 +172,9 @@ condition$date <- as.Date(condition$date, format="%m/%e/%y")
 condition$date
 condition$colony <- as.factor(condition$colony)
 condition$score <- as.integer(as.character(condition$score))
-Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T)
+condition$reef <- cut(as.numeric(as.character(condition$colony)), 
+    breaks=c(0,50,100,200,250), labels=c("HIMB", "25", "44", "42"))
+Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T, all.x=T)
 
 depth <- read.csv("depth.csv", header=TRUE)
 depth$colony <- as.factor(depth$colony)
