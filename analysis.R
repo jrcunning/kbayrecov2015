@@ -1,5 +1,7 @@
 # LOAD, MERGE, AND QC DATA
 source("setup.R")
+Mcap.ff.all$year <- ifelse(Mcap.ff.all$date < as.Date("2015-05-07"), "y1", "y2")
+
 
 # # FILTER OUT COLONIES WITH <= 4 OBSERVATIONS -----
 nobs <- aggregate(data.frame(obs=Mcap.ff.all$colony), by=list(colony=Mcap.ff.all$colony), FUN=length)
@@ -7,20 +9,23 @@ Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$colony %in% nobs[nobs$obs > 4,
 Mcap.ff.all <- droplevels(Mcap.ff.all[Mcap.ff.all$reef!="42", ])
 
 # WAS VISUAL BLEACHING SCORE THE SAME IN BOTH YEARS?
-Mcap.ff.all$year <- ifelse(Mcap.ff.all$date < as.Date("2015-05-07"), "y1", "y2")
 bscore <- aggregate(data.frame(minscore=Mcap.ff.all$score), 
                     by=list(colony=Mcap.ff.all$colony, year=Mcap.ff.all$year), FUN=min, na.rm=T)
 dcast(bscore, colony ~ year, value.var="minscore")
 
 # IDENTIFY COLONIES THAT SHUFFLED SYMBIONTS -----
 res <- ldply(levels(Mcap.ff.all$colony), plotpropD)
+par(mfrow=c(4,2), mar=c(3,3,2,1))
+ldply(list(11,71,119,125,40,72,78), plotpropD, method="loess")
 rownames(res) <- unlist(levels(Mcap.ff.all$colony))
 apply(res, 2, table)  # Count number of shufflers determined by each fitting technique
 Mcap.ff.all$shuff <- res[Mcap.ff.all$colony, "loess"]
 
 # GROUP COLONIES BY SHUFFLING, BLEACHING, AND DOMINANT CLADE -----
 Mcap.ff.all$bleach1 <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1 & Mcap.ff.all$year=="y1", "colony"], "bleach", "notbleached")
-Mcap.ff.all$bleach2 <- ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1 & Mcap.ff.all$year=="y2", "colony"], "bleach", "notbleached")
+Mcap.ff.all$bleach2 <- ifelse(Mcap.ff.all$year=="y1", NA,
+                              ifelse(is.na(Mcap.ff.all$score), NA, 
+                                     ifelse(Mcap.ff.all$colony %in% Mcap.ff.all[Mcap.ff.all$score==1 & Mcap.ff.all$year=="y2", "colony"], "bleach", "notbleached")))
 Mcap.ff.all$group <- as.character(droplevels(interaction(Mcap.ff.all$bleach2, Mcap.ff.all$shuff)))
 Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "group"] <- ifelse(Mcap.ff.all[Mcap.ff.all$group=="notbleached.noshuff", "tdom"]=="C", "notbleached.noshuff.C", "notbleached.noshuff.D")
 Mcap.ff.all$group <- factor(Mcap.ff.all$group)
@@ -65,15 +70,67 @@ plotcolony <- function(colony) {
   df <- Mcap.ff.all[Mcap.ff.all$colony==colony, ]
   df <- df[order(df$date), ]
   par(mar=c(5,3,1,1))
-  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-9,1), xlab="", ylab="Log SH", xaxt="n")
+  plot(df$date, log(df$tot.SH), type="b", pch=21, cex=2, bg=c("blue","lightblue","pink","red")[df$syms], ylim=c(-11,1), xlab="", ylab="Log SH", xaxt="n")
   dates <- as.Date(c("2014-10-24","2014-11-04","2014-11-24","2014-12-16","2015-01-14","2015-05-06","2015-08-11", "2015-09-14", "2015-10-01", "2015-10-21", "2015-11-04", "2015-12-04","2015-12-17", "2016-01-20", "2016-02-11","2016-03-31"))
   axis(side=1, at=dates, labels=FALSE)
   text(x=dates, y=par("usr")[3]-.2, srt=45, labels=as.character(dates), xpd=NA, pos=2)
   legend("topleft", legend=c("C","C>D","D>C","D"), pch=21, pt.cex=2, pt.bg=c("blue","lightblue","pink","red"))
 }
 
-plotcolony(71)
+plotcolony(11)
 
+#plot mortality
+dead <- condition[condition$mortality=="3",]
+missing <- condition[condition$mortality=="missing",]
+plot(condition$date, condition$mortality)
+
+condition <- condition[!condition$colony %in% missing$colony,]
+condition <- condition[condition$reef!="42",]
+table <- table(condition$mortality, condition$date, condition$reef)
+table
+HIMB <- table[,,1]
+HIMB <- melt(HIMB)
+HIMB2or3 <- aggregate(HIMB$value, by=list(HIMB$Var1 %in% c(2,3), HIMB$Var2), FUN=sum)
+HIMB2or3 <- HIMB2or3[HIMB2or3$Group.1==T, ]
+HIMB2or3
+plot(as.Date(HIMB2or3$Group.2), HIMB2or3$x, type="o", col="magenta", xlab="Date", ylab="Number of Colonies over 50% Dead", Main="Mortality over Time")
+lines(as.Date(TF2or3$Group.2), TF2or3$x, type="o",col="purple")
+lines(as.Date(FF2or3$Group.2), FF2or3$x, type="o",col="turquoise")
+legend("topleft", legend=c("Reef HIMB","Reef 25", "Reef 44"), fill=c("magenta","purple","turquoise"))
+
+TF <- table[,,2]
+TF <- melt(TF)
+TF2or3 <- aggregate(TF$value, by=list(TF$Var1 %in% c(2,3), TF$Var2), FUN=sum)
+TF2or3 <- TF2or3[TF2or3$Group.1==T, ]
+TF2or3
+plot(as.Date(TF2or3$Group.2), TF2or3$x, type="o")
+
+FF <- table[,,3]
+FF <- melt(FF)
+FF2or3 <- aggregate(FF$value, by=list(FF$Var1 %in% c(2,3), FF$Var2), FUN=sum)
+FF2or3 <- FF2or3[FF2or3$Group.1==T, ]
+FF2or3
+plot(as.Date(FF2or3$Group.2), FF2or3$x, type="o")
+
+table1 <-table(condition$mortality, condition$date)
+table1
+All <- melt(table1)
+All
+All2or3 <- aggregate(All$value, by=list(All$Var1 %in% c(2,3), All$Var2), FUN=sum)
+All2or3 <- All2or3[All2or3$Group.1==T, ]
+All2or3
+plot(as.Date(All2or3$Group.2), All2or3$x, type="o", col="magenta", xlab="Date", ylab="Number of Colonies over 50% Dead")
+abline(v=c())
+
+nlevels(droplevels(condition$colony))
+dev.off()
+
+Byr2 <- subset(Mcap.ff.all, bleach2=="bleach")
+NByr2 <- subset(Mcap.ff.all, bleach2=="notbleached")
+head(Byr2)
+
+plot(Mcap.ff.all$date, log(Mcap.ff.all$tot.SH))
+table(Mcap.ff.all$date, log(Mcap.ff.all$tot.SH))
 # PLOT SYMBIONT ABUNDANCE AND COMPOSITION FOR INDIVIDUAL COLONIES -----
 # XYPLOT ALL COLONIES IN EACH GROUP
 xyplot(log(tot.SH) ~ date | group, groups=~colony, ylim=c(-11,1), data=Mcap.ff.all, type="o", cex=0.25)
@@ -498,7 +555,7 @@ plotreefs <- function(mod, n) {
     })
     #rect(xleft = 0, ybottom = -6, xright = 82, ytop = -1, lty = 3, border="black")
   }
-  axdates <- seq.Date(as.Date("2014-11-01"), as.Date("2016-02-01"), by="month")
+  axdates <- seq.Date(as.Date("2014-11-01"), as.Date("2016-04-01"), by="month")
   unscaled <- Mcap.ff.all$days * attr(Mcap.ff.all$days, 'scaled:scale') + attr(Mcap.ff.all$days, 'scaled:center')
   axdays <- as.numeric(axdates - as.Date("2014-10-24"))
   tdays <- scales::rescale(axdays, to=range(dat$days), from=range(unscaled))
@@ -506,5 +563,10 @@ plotreefs <- function(mod, n) {
   axis(side=1, at=tdays, labels=format(axdates, format="%b\n%y"), padj=1)
   return(list(predlist=predlist, datlist=datlist))
 }
-pl <- plotreefs(mod.all, 99)
+# Plot
+reefcols <- list(`25`="#bebada", `44`="#8dd3c7", HIMB="#d9d9d9", `42`="green")
+vislty <- list("bleached"=2, "not bleached"=1)
+vispch <- list("bleached"=24, "not bleached"=21)
+visbg <- list("bleached"="white", "not bleached"="black")
+modelplot <- plotreefs(mod.all, 99)
 
