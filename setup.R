@@ -9,7 +9,7 @@ library(plotrix); library(latticeExtra)
 ## SPIDA package available at http://r-forge.r-project.org/projects/spida/
 #system(paste("svn checkout svn://svn.r-forge.r-project.org/svnroot/spida/"))
 #devtools::install("spida/pkg")
-#library(spida)
+library(spida)
 
 addpoly <- function(x, y1, y2, col=alpha("lightgrey", 0.8), ...){
   ii <- order(x)
@@ -164,7 +164,6 @@ Mcap2015.ff <- Mcap.ff[, c("colony","date","C.SH","D.SH","tot.SH","propD","syms"
 
 Mcap.ff.all <- rbind(Mcap2014.ff, Mcap2015.ff)
 Mcap.ff.all$syms <- factor(Mcap.ff.all$syms, levels=c("C", "CD", "DC", "D"))
-Mcap.ff.all$days <- as.numeric(Mcap.ff.all$date - as.Date("2014-10-24"))
 levels(Mcap.ff.all$syms)
 
 condition <- read.csv("coralcondition.csv", header=TRUE)
@@ -179,6 +178,9 @@ Mcap.ff.all <- merge(condition, Mcap.ff.all, all.y=T, all.x=T)
 depth <- read.csv("depth.csv", header=TRUE)
 depth$colony <- as.factor(depth$colony)
 Mcap.ff.all <- merge(depth, Mcap.ff.all, all.y=T)
+
+Mcap.ff.all$days <- as.numeric(Mcap.ff.all$date - as.Date("2014-10-24"))
+
 
 # FUNCTION TO TO DETERMINE SHUFFLERS USING VARIOUS FITTING TECHNIQUES
 plotpropD <- function(col, method=c("locfit", "locfitr", "loess", "loess.s", "gam")) {
